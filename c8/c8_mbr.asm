@@ -42,7 +42,7 @@ SECTION mbr align=16 vstart=0x7c00
         mov cx,ax                       ; 循环次数（剩余扇区数）
     @2:
         mov ax,ds
-        add,0x20                        ; 512 十六进制的0x20，右移4位后是0x20
+        add ax,0x20                        ; 512 十六进制的0x20，右移4位后是0x20
         mov ds,ax                       ; 得到下一个以512字节为边界的段地址
         
         xor bx,bx                       ; 每次读时，偏移地址始终为0x0000
@@ -110,6 +110,7 @@ read_hard_disk_0:
         mov al,0x20                         ; 读命令
         out dx,al
 
+        mov dx,0x1f7
     .waits:
         in al,dx
         and al,0x88                         ; 0x88 -> 10001000

@@ -35,7 +35,7 @@ put_string:
         inc bx
         jmp put_string
 
-    .exit
+    .exit:
         ret
 
 ;---------------------------------------------------------------------
@@ -171,7 +171,7 @@ SECTION code_2 align=16 vstart=0
     begin:
         push word [es:code_1_seg]
         mov ax,continue
-        push sx
+        push ax
 
         retf                                ; 转移到代码段1接着执行
 
