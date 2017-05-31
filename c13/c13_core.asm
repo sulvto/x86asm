@@ -118,8 +118,22 @@ allocate_memory:
 
         mov eax,[ram_alloc]
         add eax,ecx
+
+        mov ecx,[ram_alloc]
+        
+        mov ebx,eax
+        and ebx,0xfffffffc
+        add ebx,4
+        test eax,ebx
+        cmovnz eax,ebx
+        mov [ram_alloc],eax
+        
+        pop ebx
+        pop eax
+        pop ds
     
-        ; TODO
+        retf
+    
 
 ; ================================================================
 SECTION core_data vstart=0                          ; 系统核心的数据段
@@ -211,9 +225,68 @@ load_relocate_program:
         
         mov ecx,eax
         call sys_routine_seg_sel:allocate_memory
+        mov ebx,ecx                                     ; 申请到的内存首地址
+        push ebx                                        ; 保存该首地址
+        xor edx,edx
+        mov ecx,512
+        div ecx
+        mov ecx,eax                                     ; 总扇区数
+
+        mov eax,mem_0_4_gb_seg_sel                      ; 切换DS到0-4G的段
+        mov ds,eax
+        mov eax,esi
+
+    .bi:
+        call sys_routine_seg_sel:read_hard_disk_0
+        inc eax
+        loop .bi        
+     
+        ; 建立程序头部段描述符
+        pop esi                                         ; 恢复程序装载的首地址
+        mov eax,esi                                     ; 程序头部起始线性地址
+        mov ebx,[edi+0x04]                              ; 段长度
+        dec ebx                                         ; 段界限
+        mov ecx,0x00409200                              ; 字节粒度的数据段描述符
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+0x04],cx
+
+        ; 建立程序代码段描述符
+        mov eax,edi
+        add eax,[edi+0x14]                              ; 代码起始线性地址
+        mov ebx,[edi+0x18]                              ; 段长度
+        dec ebx
+        mov ecx,0x00409800                              ; 字节粒度的代码段描述符
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+0x14],cx
+        
+        ; 建立程序数据段描述符
+        mov eax,edi
+        add eax,[edi+0x1c]                              ; 数据段起始线性地址
+        mov ebx,[edi+0x20]
+        dec ebx
+        mov ecx,0x00409200                              ; 字节粒度的数据段描述符
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+0x1c] cx
+
+        ; 建立程序堆栈段描述符
+        mov ecx,[edi+0x0c]                              ; 4KB的倍率
+        mov ebx,0x000fffff
+        sub ebx,ecx                                     ; 得到段界限
+        mov eax,4096
+        mul ecx,eax                                     ; 准备为堆栈分配内存
+        call sys_routine_seg_sel:allocate_memory
+        add eax,ecx                                     ; 得到堆栈的高端物理地址
+        mov ecx,0x00c09600                              ; 4KB粒度的堆栈段描述符
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+0x08],cx
+
+        ; 重定位SALT
         ; TODO
 
-     
 ; ----------------------------------------------------------------
 start:
         mov ecx core_data_seg_sel                  ; 使ds指向核心数据段
