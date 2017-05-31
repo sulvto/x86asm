@@ -4,18 +4,31 @@
 core_code_seg_sel   equ 0x38    ; 内核代码段选择子
 core_data_seg_sel   equ 0x30    ; 内核数据段选择子
 sys_routine_seg_sel equ 0x28    ; 系统公共例程代码段选择子
+video_ram_seg_sel   equ 0x20    
+core_stack_seg_sel  equ 0x18    ; 内核堆栈段选择子
+mem_0_4_gb_seg_sel equ 0x08    ; 整个0-4G内存的段的选择子
+
+;---------------------------------------------------------------------
+
+; 系统核心的头部，用于加载核心程序
+core_len        dd  core_end                    ; 核心程序总长度     #00
+sys_routine_seg dd  section.sys_routine.start   ; 系统公用例程段位置 #04
+core_data_seg   dd  section.core_data.start     ; 核心数据段位置     #08
+core_code_seg   dd  section.core_code.start     ; 核心代码段位置    #0c
+core_entry      dd  start                       ; 核心代码段入口    #10
+                dw  core_code_seg_sel           
 
 
 
-
-; ================================================================
+;=====================================================================
     [bit 32]
-; ================================================================
+;=====================================================================
 SECTION sys_routine vstart=0                       ; 系统公共例程代码段
 ; ----------------------------------------------------------------
 
 ;
-;字符串显示
+; 字符串显示
+; DS:EBX 串地址
 ;
 put_string:
         put ecx
@@ -90,6 +103,23 @@ put_chat:
         cld
         // TODO
 
+;---------------------------------------------------------------------
+; 
+; 分配内存
+; @Param ECX 希望分配的字节数
+; @Return ECX 起始线性地址
+allocate_memory:
+        push dx
+        push eax
+        push ebx
+
+        mov eax,core_data_seg_sel
+        mov ds,eax
+
+        mov eax,[ram_alloc]
+        add eax,ecx
+    
+        ; TODO
 
 ; ================================================================
 SECTION core_data vstart=0                          ; 系统核心的数据段
@@ -155,9 +185,35 @@ SECTION core_code vstart=0
 ; @Return   AX  指向用户程序头部的选择子
 ;
 load_relocate_program:                                  
-      // TODO
+        push ebx
+        push ecx
+        push edx
+        push esi
+        push edi
 
-  
+        push ds
+        push es
+        
+        mov eax,core_data_seg_sel
+        mov ds,eax                                      ; 切换DS到内核数据段
+    
+        mov eax,esi                                     ; 读取程序头部数据
+        mov ebx,core_buf
+        call sys_routine_seg_sel:read_hard_disk_0
+
+        ; 判断程序大小
+        mov eax,[core_buf]
+        mov ebx,eax
+        and ebx,0xfffffe00                              ; 凑整
+        add ebx,512                                     ; 
+        test eax,0x000001ff                             ; 程序的大小正好是512的倍数吗？ 
+        cmovnz eax,ebx                                  ; 使用凑整的结果
+        
+        mov ecx,eax
+        call sys_routine_seg_sel:allocate_memory
+        ; TODO
+
+     
 ; ----------------------------------------------------------------
 start:
         mov ecx core_data_seg_sel                  ; 使ds指向核心数据段

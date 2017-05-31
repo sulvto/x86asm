@@ -101,7 +101,7 @@ flush:
     div ecx
    
     or edx,edx                          ; or指令会影响 ZF 标志位
-    jnz @1
+    jnz @1                              ; edx 为0 -> zf 为1（真）-> jzn 不转移， 否则反之
     dec eax                             ; 扇区总数减1
 @1:
     or eax,eax
@@ -110,7 +110,7 @@ flush:
     ; 读剩余的扇区
     mov ecx,eax                         ; 32位 LOOP
     mov eax,core_start_sector
-    inc eax
+    inc eax                             ; 从下一个逻辑扇区接着读
 @2:
     call read_hard_disk_0
     inc eax
@@ -249,7 +249,3 @@ make_gdt_descriptor:
                 dd 0x00007e00           ; GDT的物理地址
     times 510-($-$$) db 0
                      db 0x55,0xaa
-
-
-
-
