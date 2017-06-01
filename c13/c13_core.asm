@@ -275,7 +275,7 @@ load_relocate_program:
         mov ecx,[edi+0x0c]                              ; 4KB的倍率
         mov ebx,0x000fffff
         sub ebx,ecx                                     ; 得到段界限
-        mov eax,4096
+        mov eax,4096                                    ; 4096 -> 4KB
         mul ecx,eax                                     ; 准备为堆栈分配内存
         call sys_routine_seg_sel:allocate_memory
         add eax,ecx                                     ; 得到堆栈的高端物理地址
@@ -285,7 +285,59 @@ load_relocate_program:
         mov [edi+0x08],cx
 
         ; 重定位SALT
-        ; TODO
+        mov eax,[edi+0x04]                              ; 取出刚刚安装好的头部段选择子
+        mov es,eax                                      ; es -> 用户程序头部
+        mov eax,core_data_seg_sel
+        mov ds,eax                                      ; 指向内核数据段
+        
+        cld                                             ; 清除EFLAGS中的方向标志，使cmps指令按正向进行比较
+        
+        mov ecx,[es:0x24]                               ; 用户程序的SALT条目数
+        mov edi,0x28
+    .b2:
+        push ecx
+        push edi
+        
+        mov ecx,salt_items
+        mov esi,salt
+    .b3:
+        push edi
+        push esi
+        push ecx
+
+        mov ecx,64
+        repe cmpsd
+        jnz .b4
+        mov eax,[esi]
+        mov [es:edi-256],eax
+        mov ax,[esi+4]
+        mov [es:edi-252],ax
+    .b4:
+        pop ecx
+        pop esi
+        add esi,salt_item_len
+        pop edi
+        loop .b3
+
+        pop edi
+        add edi,256
+        pop ecx
+        loop .b2
+
+        mov ax,[es:0x04]
+
+        pop es
+        pop ds
+
+        pop edi
+        pop esi
+        pop edx
+        pop ecx 
+        pop ebx
+
+        ret
+
+        
 
 ; ----------------------------------------------------------------
 start:
