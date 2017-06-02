@@ -101,7 +101,103 @@ put_chat:
         mov de,eax
         mov es,eax
         cld
-        // TODO
+        mov esi,0xa0
+        mov edi,0x00
+        mov ecx,1920
+        rep movsd
+        mov bx,3840
+        mov ecx,80
+    .cls:
+        mov word[es:bx],0x0720
+        add bc,2
+        loop .cls
+
+        pop es
+        pop ds
+    
+        mov bx,1920
+    .set_cursor:
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx                  ; 0x3d5
+        mov al,bh
+        out dx,al
+        dec dx                  ; 0x3d4
+        mov al,0x0f
+        out dx,al
+        inc dx                  ; 0x3d5
+        mov al,bl
+        out dx,al
+    
+        popad
+        ret
+
+;---------------------------------------------------------------------------
+
+;
+; @Param EAX 逻辑扇区号
+; @Param DS:EBX 目标缓冲区地址
+; @Return EBX=EBX+512
+;
+read_hard_disk_0:
+        push eax
+        push ecx
+        push edx
+
+        push eax
+        
+        mov dx,0x1f2
+        mov al,1
+        out dx,al                       ; 读取的扇区数
+
+        inc dx                          ; 0x1f3
+        pop eax
+        out dx,al                       ; LBA地址7～0
+
+        inc dx                          ; 0x1f4
+        mov cl,8
+        shr eax,cl
+        out dx,al                       ; LBA地址15～8
+
+        inc dx                          ; 0x1f5
+        shr eax,cl
+        out dx,al                       ; LBA地址23～16
+        
+        inc dx                          ; 0x1f6
+        shr eax,cl
+        or al,0xe0
+        out dx,al                       ; LBA地址27～24
+        
+        inc dx                          ; 0x1f7
+        mov al,0x20                     ; 读命令 
+        out dx,al
+
+    .waits:
+        in al,dx
+        and al,0x88
+        cmp al,0x08
+        jnz .waits                      
+
+        mov ecx,256                     ; 总共要读取的字数
+        mov dx,0x1f0
+    .readw:
+        in ax,dx
+        mov [ebx],ax
+        add ebx,2
+        loop .readw
+
+        pop edx
+        pop ecx
+        pop eax
+        
+        retf                            ; 段间返回
+
+;---------------------------------------------------------------------------
+
+put_hex_dword:
+        ; TODO
+
 
 ;---------------------------------------------------------------------
 ; 
@@ -155,7 +251,7 @@ SECTION core_data vstart=0                          ; 系统核心的数据段
 
         salt_3          db  '@PrintDwordAsHexString'
                     times 256-($-salt_3) db 0
-                        dd  read_hard_disk_0
+                        dd  put_hex_dword
                         dw  sys_routine_seg_sel
 
         salt_4          db  '@TerminateProgram'
@@ -394,7 +490,20 @@ start:
         jmp far [0x10]                          ; 控制权交给用户程序（入口点）
                                                 ; 堆栈可能切换
 
-return_point:
-        // TODO
+return_point:                                   ; 用户程序返回点 
+        mov eax,core_data_seg_sel               ; 使DS指向核心数据段
+        mov ds,eax
+        
+        mov eax,core_stack_seg_sel              ; 切换回内核自己的堆栈
+        mov ss,eax
+        mov esp,[esp_pointer]
 
+        mov ebx,message_6
+        call sys_routine_seg_sel:put_string
 
+        hlt
+
+;===========================================================================
+SECTION core_trail
+;---------------------------------------------------------------------------
+core_end:
