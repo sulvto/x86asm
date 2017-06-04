@@ -7,7 +7,7 @@ core_base_address equ 0x00040000    ; 内核加载的起始内存地址
 core_start_sector equ 0x00000001    ; 内核的起始逻辑扇区号
 
     mov ax,cs
-    mov ss ax
+    mov ss,ax
     mov sp,0x7c00
     
     ; 计算GDT所在的逻辑段地址
@@ -79,7 +79,7 @@ core_start_sector equ 0x00000001    ; 内核的起始逻辑扇区号
     
     jmp dword 0x0010:flush              ; 16位的描述符选择子：32位偏移
 
-[bit 32]
+[bits 32]
 flush:
     mov eax,0x0008                      ; 加载数据段（0～4G）选择子
     mov ds,eax
@@ -202,7 +202,7 @@ read_hard_disk_0:
         in al,dx
         and al,0x88
         cmp al,0x08
-        jnz .watis                          ; 不忙，且硬盘已准备好数据传输
+        jnz .waits                          ; 不忙，且硬盘已准备好数据传输
         
         mov ecx,256                         ; 总共要读取的字数
         mov dx,0x1f0

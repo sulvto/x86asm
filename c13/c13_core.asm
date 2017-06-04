@@ -21,7 +21,7 @@ core_entry      dd  start                       ; 核心代码段入口    #10
 
 
 ;=====================================================================
-    [bit 32]
+    [bits 32]
 ;=====================================================================
 SECTION sys_routine vstart=0                       ; 系统公共例程代码段
 ; ----------------------------------------------------------------
@@ -31,7 +31,7 @@ SECTION sys_routine vstart=0                       ; 系统公共例程代码段
 ; DS:EBX 串地址
 ;
 put_string:
-        put ecx
+        push ecx
     .getc:
         mov cl,[ebx]
         or cl,cl
@@ -44,7 +44,7 @@ put_string:
         retf
 
 ; ----------------------------------------------------------------
-put_chat:
+put_char:
         pushad
         
         ; 以下取当前光标位置
@@ -58,14 +58,12 @@ put_chat:
         dec dx
         mov al,0x0f
         out dx,al
-        inc dx
-        in al,dx
         inc dx                  ; 0x3d5
         in al,dx                ; 低字
         mov bx,ax               
 
         cmp cl,0x0d             ; 回车符？
-        jzp  .put_0a
+        jnz  .put_0a
         mov ax,bx
         mov bl,80
         div bl
@@ -92,13 +90,13 @@ put_chat:
         inc bx
 
     .roll_screen:
-        cmp bc,2000
+        cmp bx,2000
         jl .set_cursor
 
         push ds
         push es
         mov eax,video_ram_seg_sel
-        mov de,eax
+        mov ds,eax
         mov es,eax
         cld
         mov esi,0xa0
@@ -109,7 +107,7 @@ put_chat:
         mov ecx,80
     .cls:
         mov word[es:bx],0x0720
-        add bc,2
+        add bx,2
         loop .cls
 
         pop es
@@ -195,17 +193,43 @@ read_hard_disk_0:
 
 ;---------------------------------------------------------------------------
 
+;
+;在当前光标处以十六进制形式显示一个双字并推进噶光标
+; @Param EDX 要转换并显示的数字
+;
 put_hex_dword:
-        ; TODO
+        pushad
+        push ds
+        mov ax,core_data_seg_sel        ; 切换到核心数据段
+        mov dx,ax
+      
+        mov ebx,bin_hex                 ; 指向核心数据段内的转换表
+        mov ecx,8
+    .xlt:
+        rol edx,4
+        mov eax,edx
+        and eax,0x0000000f
+        xlat
+        
+        push ecx
+        mov cl,al
+        call put_char
+        pop ecx
+        
+        loop .xlt
+        
+        pop ds
+        pushad
+        retf
 
 
-;---------------------------------------------------------------------
+;---------------------------------------------------------------------------
 ; 
 ; 分配内存
 ; @Param ECX 希望分配的字节数
 ; @Return ECX 起始线性地址
 allocate_memory:
-        push dx
+        push ds
         push eax
         push ebx
 
@@ -220,7 +244,7 @@ allocate_memory:
         mov ebx,eax
         and ebx,0xfffffffc
         add ebx,4
-        test eax,ebx
+        test eax,0x00000003
         cmovnz eax,ebx
         mov [ram_alloc],eax
         
@@ -230,6 +254,78 @@ allocate_memory:
     
         retf
     
+
+
+;---------------------------------------------------------------------
+;
+; 在GDT内安装一个新的描述符
+; @Param EDX：EAX 描述符
+; @Return CX 描述符的选择子
+;
+set_up_gdt_descriptor:
+        push eax
+        push ebx 
+        push ecx
+        
+        push ds
+        push es
+
+        mov ebx,core_data_seg_sel                   ; 切换到核心数据段
+        mov ds,ebx
+            
+        sgdt [pgdt]                                 ;
+        
+        mov ebx,mem_0_4_gb_seg_sel
+        mov es,ebx
+        
+        movzx ebx,word [pgdt]
+        inc bx
+        add ebx,[pgdt+2]
+        
+        mov [es:ebx],eax
+        mov [es:ebx+4],edx
+
+        add word [pgdt],8
+
+        lgdt [pgdt]
+        
+        mov ax,[pgdt]
+        xor dx,dx
+        mov bx,8
+        div bx
+        mov cx,ax
+        shl cx,3
+
+        pop es
+        pop ds
+        
+        pop edx
+        pop ebx
+        pop eax
+        
+        retf
+;---------------------------------------------------------------------
+;
+; 构造存储器和系统的段描述符
+; @Param EAX 线性基地址
+; @Param EBX 段界限
+; @Param ECX 属性
+; @Return EDX:EAX 描述符
+make_seg_descriptor:
+        mov edx,eax
+        shl eax,16
+        or ax,bx
+
+        and edx,0xffff0000
+        rol edx,8
+        bswap edx
+
+        xor bx,bx
+        or edx,ebx
+
+        or edx,ecx
+        
+        retf
 
 ; ================================================================
 SECTION core_data vstart=0                          ; 系统核心的数据段
@@ -256,7 +352,7 @@ SECTION core_data vstart=0                          ; 系统核心的数据段
 
         salt_4          db  '@TerminateProgram'
                     times 256-($-salt_4) db 0
-                        dd  retrun_point
+                        dd  return_point
                         dw  core_code_seg_sel
         
         salt_item_len   equ $-salt_4
@@ -266,7 +362,7 @@ SECTION core_data vstart=0                          ; 系统核心的数据段
                         db  'are now in protect mode,and the system '
                         db  'core is loaded,and the video display '
                         db  'routine works perfectly.',0x0d,0x0a,0
-        
+
         message_5       db  '  Loading user program...',0
         
         do_status       db  'Done.',0x0d,0x0a,0
@@ -318,7 +414,7 @@ load_relocate_program:
         add ebx,512                                     ; 
         test eax,0x000001ff                             ; 程序的大小正好是512的倍数吗？ 
         cmovnz eax,ebx                                  ; 使用凑整的结果
-        
+
         mov ecx,eax
         call sys_routine_seg_sel:allocate_memory
         mov ebx,ecx                                     ; 申请到的内存首地址
@@ -332,14 +428,14 @@ load_relocate_program:
         mov ds,eax
         mov eax,esi
 
-    .bi:
+    .b1:
         call sys_routine_seg_sel:read_hard_disk_0
         inc eax
-        loop .bi        
-     
+        loop .b1        
+
         ; 建立程序头部段描述符
-        pop esi                                         ; 恢复程序装载的首地址
-        mov eax,esi                                     ; 程序头部起始线性地址
+        pop edi                                         ; 恢复程序装载的首地址
+        mov eax,edi                                     ; 程序头部起始线性地址
         mov ebx,[edi+0x04]                              ; 段长度
         dec ebx                                         ; 段界限
         mov ecx,0x00409200                              ; 字节粒度的数据段描述符
@@ -365,14 +461,15 @@ load_relocate_program:
         mov ecx,0x00409200                              ; 字节粒度的数据段描述符
         call sys_routine_seg_sel:make_seg_descriptor
         call sys_routine_seg_sel:set_up_gdt_descriptor
-        mov [edi+0x1c] cx
+        mov [edi+0x1c],cx
 
         ; 建立程序堆栈段描述符
         mov ecx,[edi+0x0c]                              ; 4KB的倍率
         mov ebx,0x000fffff
         sub ebx,ecx                                     ; 得到段界限
         mov eax,4096                                    ; 4096 -> 4KB
-        mul ecx,eax                                     ; 准备为堆栈分配内存
+        mul dword [edi+0x0c]
+        mov ecx,eax                                     ; 准备为堆栈分配内存
         call sys_routine_seg_sel:allocate_memory
         add eax,ecx                                     ; 得到堆栈的高端物理地址
         mov ecx,0x00c09600                              ; 4KB粒度的堆栈段描述符
@@ -437,10 +534,10 @@ load_relocate_program:
 
 ; ----------------------------------------------------------------
 start:
-        mov ecx core_data_seg_sel                  ; 使ds指向核心数据段
+        mov ecx,core_data_seg_sel                  ; 使ds指向核心数据段
         mov ds,ecx
 
-        mov sbx,message_1
+        mov ebx,message_1
         call sys_routine_seg_sel:put_string
 
         ; 显示处理器品牌信息
@@ -476,7 +573,7 @@ start:
 
         mov ebx,message_5
         call sys_routine_seg_sel:put_string
-    
+
         mov esi,50                              ; 用户程序位于逻辑50扇区
         call load_relocate_program
         

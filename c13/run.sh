@@ -13,7 +13,8 @@ dd if=mbr.bin of=../c.img bs=512 count=1 conv=notrunc
 
 dd if=core.bin of=../c.img bs=512 count=10 seek=1 conv=notrunc
 
-dd if=c.bin of=../c.img bs=512 count=10 seek=50 conv=notrunc
+dd if=c.bin of=../c.img bs=512 count=50 seek=50 conv=notrunc
 
+dd if=diskdata.txt of=../c.img bs=512 count=10 seek=100 conv=notrunc
 # run bochs
 bochs -q -f .bochsrc
