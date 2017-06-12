@@ -21,7 +21,49 @@ core_entry      dd  start                       ; #10
 ;=====================================================================
 SECTION sys_routine vstart=0
 ;---------------------------------------------------------------------
+put_string:
+        ; TODO
 
+put_char:
+        ; TODO
+
+read_hard_disk_0:
+        ; TODO
+
+put_hex_dword:
+        ; TODO
+
+allocate_memory:
+        ; TODO
+
+set_up_gdt_descriptor:
+        ; TODO
+
+make_seg_descriptor:
+        ; TODO
+
+;---------------------------------------------------------------------
+; 构造门的描述符（调用门等）
+; @Param EAX 门代码在段内偏移地址
+; @Param BX 门代码所在段的选择子
+; @Param CX 段类型及属性
+; @Retuen EDX:EAX 完整的描述符
+;
+make_gate_descriptor:
+        push ebx
+        push ecx
+        mov edx,eax
+        and edx,0xffff0000                      ; 得到偏移地址高16位
+        or dx,cx                                ; 组装属性部分到EDX
+        
+        and eax,0x0000ffff                      ; 得到偏移地址低16位
+        shl ebx,16
+        or eax,ebx                              ; 组装段选择子部分
+        
+        pop ecx
+        pop ebx
+        
+        retf
 
 sys_routine_end:
 
@@ -88,12 +130,54 @@ core_data_end:
 ;=====================================================================
 SECTION core_code vstart=0
 ;---------------------------------------------------------------------
+fill_descriptor_in_ldt:
+    ; TODO
+;---------------------------------------------------------------------
+load_relocate_program:
+    ; TODO
+;---------------------------------------------------------------------
 
+;
+;在TCB链上追加任务控制块
+; @Param ECX=TCB线性基地址
+;
+append_to_tcb_link:
+        push eax
+        push edx
+        push ds
+        push es
+        
+        mov eax,core_data_seg_sel               ; ds指向内核数据段
+        mov ds,eax
+        mov eax,mem_0_4_gb_seg_sel              ; es指向0～4GB段
+        mov es,eax
 
+        mov dword   [es:ecx+0x00],0             ; 当前TCB指针域清零，以指示这是最后一个TCB
+        
+        mov eax,[tcb_chain]                     ; 链表头
+        or eax,eax                              ; 链表为空？
+        jz .notcb
 
+    .searc:                                     ; 找到最后一个TCB
+        mov edx,eax
+        mov eax,[es:edx+0x00]
+        or eax,eax
+        jnz .searc
 
+        mov [es:edx+0x00],ecx
+        jmp .retpc
 
+    .notcb:
+        mov [tcb_chain],ecx                     ; 若为空表，直接令表头指针指向TCB
 
+    .retpc:
+        pop es
+        pop ds
+        pop edx
+        pop eax
+    
+        ret
+        
 
 ;---------------------------------------------------------------------
 start:  
@@ -147,11 +231,54 @@ start:
         add edi,salt_item_len                   ; 指向下一个C-SALT条目
         pop ecx
         loop .b3
-    
-        ; TODO
-       
+   
+        ; 进行门测试
+        mov ebx,message_2
+        call far [salt_1+256]                   ; 通过门显示信息（偏移量将被忽略）
+        
+        mov ebx,message_3
+        call sys_routine_seg_sel:put_string     ; 内核中调用例程不需要通过门
+        
+        ; 创建任务控制块，为了方便而设立
+        mov ecx,0x46
+        call sys_routine_seg_sel:allocate_memory
+        call append_to_tcb_link                 ; 将任务控制块追加到TCB链表
+        push dword 50                           ; 用户程序位于逻辑50扇区
+        push ecx                                ; 压如任务控制块起始线性地址
+        
+        call load_relocate_program
 
+        mov bx,do_status
+        call sys_routine_seg_sel:put_string
+        
+        mov eax,mem_0_4_gb_seg_sel
+        mov ds,eax                              
+        
+        ltr [ecx+0x18]                          ; 加载任务状态段
+        lldt [ecx+0x10]                         ; 加载LDT
 
+        mov eax,[ecx+0x44]
+        mov ds,eax
 
+        push dword [0x08]
+        push dword 0
+        push dword [0x14]
+        push dword [0x10]
+        
+        retf
 
+return_point:
+        mov eax,core_code_seg_sel
+        mov ds,eax
+        
+        mov ebx,message_6
+        call sys_routine_seg_sel:put_string
 
+        hlt
+
+core_code_end:
+
+;---------------------------------------------------------------------
+SECTION core_trail
+;---------------------------------------------------------------------
+core_end:
