@@ -133,8 +133,48 @@ SECTION core_code vstart=0
 fill_descriptor_in_ldt:
     ; TODO
 ;---------------------------------------------------------------------
+;
+; 加载并重定位用户程序
+; @Params PUSH 逻辑扇区号
+;         PUSH 任务控制块基地址
+;
 load_relocate_program:
-    ; TODO
+        pushad
+        
+        push    ds
+        push es
+        
+        mov ebp,esp
+        mov ecx,mem_0_4_gb_seg_sel
+        mov es,ecx
+        
+        ;   栈状态
+        ;   
+        ;   |-----------------------|
+        ;   | 50                    |   <- SS: EBP + 12 * 4
+        ;   |-----------------------|
+        ;   |TCB线性地址            |   <- SS: EBP + 11 * 4
+        ;   |-----------------------|
+        ;   | EIP                   |
+        ;   |-----------------------|
+        ;   | 8个双字（通用寄存器） |   <- SS: EBP + 8
+        ;   |-----------------------|
+        ;   | 0        |  DS        |   <- SS: EBP + 4
+        ;   |-----------------------|
+        ;   | 0        |  ES        |   <- SS: EBP
+        ;
+        ;
+        ;   SS：EBP+8 是pushad指令压入的8个双字
+        mov esi,[ebp+11*4]                      ; 从堆栈中取得TCB的基地址 
+                                                ; ebp 默认使用段寄存器SS
+        ; 以下申请创建LDT所需要的内存
+        mov ecx,160                             ; 允许安装20个LDT描述符
+        call sys_routine_seg_sel:allocate_memory
+        mov [es:esi+0x0c],ecx                   ; 登记LDT基地址到TCB中
+        mov word [es:esi+0x0a],0xffff           ; 登记LDT初始的界限到TCB中
+        ; 开始加载用户程序      
+        ; TODO
+
 ;---------------------------------------------------------------------
 
 ;
