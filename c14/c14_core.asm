@@ -173,7 +173,32 @@ load_relocate_program:
         mov [es:esi+0x0c],ecx                   ; 登记LDT基地址到TCB中
         mov word [es:esi+0x0a],0xffff           ; 登记LDT初始的界限到TCB中
         ; 开始加载用户程序      
-        ; TODO
+        mov eax,core_data_seg_sel
+        mov ds,eax
+
+        mov eax,[ebp+12*4]                      ; 从堆栈中取出用户程序起始扇区号
+        mov ebx,core_buf                        ; 读取程序头部数据
+        call sys_routine_seg_sel:read_hard_disk_0
+        
+        ; 以下判断整个程序有多大
+        mov eax,[core_buf]                      ; 程序尺寸
+        mov ebx,eax
+        and ebx,0xfffffe00                      ; 使之512字节对齐（能被512整除的数低9位都为0）
+        add ebx,512
+        test eax,0x000001ff                     ; 
+        cmovnz eax,ebx
+                
+        mov ecx,eax
+        call sys_routine_seg_sel:allocate_memory
+        mov [es:esi+0x06],ecx                   ; 登记程序加载基地址到TCB中
+        
+        mov ebx,ecx
+        xor edx,edx
+        mov ecx,512
+        div ecx
+        mov ecx,eax
+        ; TODO line 508
+
 
 ;---------------------------------------------------------------------
 
