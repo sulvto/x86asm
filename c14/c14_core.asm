@@ -266,9 +266,49 @@ load_relocate_program:
         mov [edi+0x08],cx                       ; 登记堆栈段选择子到头部
 
         ; 重定位SALT
+        mov eax,mem_0_4_gb_seg_sel              ; 通过4GB段访问用户程序头部
+        mov es,eax
+    
+        mov eax,core_data_seg_sel
+        mov ds,eax
+
+        cld
+
+        mov ecx,[es:edi+0x24]
+        add edi,0x28
+    .b2:
+        push ecx
+        push edi
+
+        mov ecx,salt_items
+        mov esi,salt
+    .b3:
+        push edi        
+        push esi
+        push ecx
+
+        mov ecx,64                                  ; 检索表中。每条目的比较次数
+        repe cmpsd                                  ; 每次比较4字节x64次=256（全部）。 ESI,EDI会递减
+        jnz .b4 
+        mov eax,[esi]                               ; 若匹配，则esi恰好指向其后的地址
+        mov [es:edi-256],eax                        ; 将字符串改写成偏移地址
+        mov ax,[esi+4]
+        or ax,0000000000000011B                     ; 以用户程序自己的特权级使用调用门，故RPL=3
+        mov [es:edi-252],ax                         ; 回填调用门选择子
+        
+    .b4:
+        pop ecx
+        pop esi
+        add esi,salt_item_len
+        pop edi                                     ; 从头比较
+        loop .b3
+
+        pop edi
+        add edi,256
+        pop ecx
+        loop .b2
+
         ; TODO
-
-
  
 ;---------------------------------------------------------------------
 
