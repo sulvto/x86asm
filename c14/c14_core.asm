@@ -21,11 +21,116 @@ core_entry      dd  start                       ; #10
 ;=====================================================================
 SECTION sys_routine vstart=0
 ;---------------------------------------------------------------------
+;
+; 显示0终止的字符串并移动光标
+; @Param DS:EBX=串地址
+;
 put_string:
-        ; TODO
+        push ecx
+    .getc:
+        mov cl,[ebx]
+        or cl,cl
+        jz .exit
+        call put_char
+        inc ebx
+        jmp .getc
+    .exit:
+        pop ecx
+        retf
 
+;---------------------------------------------------------------------
+;
+; 在当前光标处显示一个字符，并推进光标 。仅用于段内调用
+; @Param cl=字符 ascii 码
+;
 put_char:
-        ; TODO
+        pushad
+        
+        ; 取光标位置
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        in al,dx
+        mov ah,al
+
+        dec dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        inc al,dx
+        mov bx,ax
+
+        cmp cl,0x0d
+        jnz .put_0a
+        mov ax,bx
+        mov bl,80
+        div bl
+        mul bl
+        mov bx,ax
+        jmp .set_cursor
+
+    .put_0a:
+        cmp cl,0x0a
+        jnz .put_other
+        add bx,80
+        jmp .roll_screen
+    
+    .put_other:
+        push es
+        mov eax,video_ram_seg_sel
+        mov es,eax
+        shl bx,1
+        mov [es:bx],cl
+        pop  es
+
+        shr bx,1
+        inc bx
+
+    .roll_screen:
+        cmp bx,2000
+        jl .set_cursor  
+        
+        push ds
+        push es
+        mov eax,video_ram_seg_sel
+        mov ds,eax
+        mov es,eax
+        cld
+        mov esi,0xa0
+        mov edi,0x00
+        mov ecx,1920
+        rep movsd
+        mov bx,3840
+        mov ecx,80
+    .cls:
+        mov word[es:dx],0x0720
+        add bx,2
+        loop .cls
+        
+        pop es
+        pop ds
+
+        mov bx,1920
+
+    .set_cursor:
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        mov al,bh
+        out dx,al
+        dec dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        mov al,bl
+        out dx,al
+    
+        popad
+
+        ret
+
 
 read_hard_disk_0:
         ; TODO
@@ -542,15 +647,15 @@ start:
         mov eax,[ecx+0x44]
         mov ds,eax
 
-        push dword [0x08]
-        push dword 0
-        push dword [0x14]
-        push dword [0x10]
+        push dword [0x08]                       ; 调用前的堆栈段选择子
+        push dword 0                            ; 调用前的esp
+        push dword [0x14]                       ; 调用前的代码段选择子
+        push dword [0x10]                       ; 调用前的eip
         
         retf
 
-return_point:
-        mov eax,core_code_seg_sel
+return_point:                                   ; 用户程序返回点    
+        mov eax,core_code_seg_sel           
         mov ds,eax
         
         mov ebx,message_6
