@@ -317,7 +317,18 @@ make_seg_descriptor:
         mov edx,eax
         shl eax,16
         or ax,bx
-        ; TODO
+        
+        and edx,0xffff0000                      ; 清除基址中无关的位
+        rol edx,8
+        bswap edx                               ; 装配基址的31～24和23～16
+        
+        xor bx,bx
+        or edx,ebx                              ; 装配段界限的高4位
+
+        or edx,ecx                              ; 装配属性
+
+        retf
+
 ;---------------------------------------------------------------------
 ; 构造门的描述符（调用门等）
 ; @Param EAX 门代码在段内偏移地址
@@ -406,8 +417,52 @@ core_data_end:
 ;=====================================================================
 SECTION core_code vstart=0
 ;---------------------------------------------------------------------
+;
+; 在LDT内安装一个新的描述符
+; @Param EDX:EAX 描述符 
+; @Param EBX TCB基地址
+; @Retuen CX 描述符的选择子
+;
 fill_descriptor_in_ldt:
-    ; TODO
+        push eax
+        push edx
+        push edi
+        push ds
+            
+        mov ecx,mem_0_4_gb_seg_sel
+        mov ds,ecx
+
+        mov edi,[ebx+0x0c]                      ; 获得LDT基地址
+            
+        xor ecx,ecx
+        mov cx,[ebx+0x0a]                       ; LDT界限
+        inc cx                                  ; LDT的总字节数，即新描述符偏移地址
+
+        mov [edi+ecx+0x00],eax                  ; 安装描述符
+        mov [edi+ecx+0x04],edx                  ; 安装描述符
+
+        add cx,8
+        dec cx                                  ; 得到新的LDT界限值
+        
+        mov [ebx+0x0a],cx                       ; 更新LDT界限值到TCB
+        
+        mov ax,cx
+        xor dx,dx
+        mov cx,8
+        div cx                                  ; 得到索引号
+
+        mov cx,ax
+        shl cx,3                                ; 左移3位
+        or cx,0000_0000_0000_0100B              ; 使TI位=1，指向LDT，使RPL=00
+
+        pop  ds
+        pop edi
+        pop edx
+        pop eax
+
+        ret
+
+
 ;---------------------------------------------------------------------
 ;
 ; 加载并重定位用户程序
