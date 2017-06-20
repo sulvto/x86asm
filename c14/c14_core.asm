@@ -7,7 +7,7 @@ video_ram_seg_sel       equ     0x20
 core_stack_seg_sel      equ     0x18
 mem_0_4_gb_seg_sel      equ     0x08    
 
-core_len        dd  core_endi                   ; #00
+core_len        dd  core_end                    ; #00
 sys_routine_seg dd  section.sys_routine.start   ; #04
 core_data_seg   dd  section.core_data.start     ; #08
 core_code_seg   dd  section.core_code.start     ; #0c
@@ -58,7 +58,7 @@ put_char:
         mov al,0x0f
         out dx,al
         inc dx
-        inc al,dx
+        in al,dx
         mov bx,ax
 
         cmp cl,0x0d
@@ -104,7 +104,7 @@ put_char:
         mov bx,3840
         mov ecx,80
     .cls:
-        mov word[es:dx],0x0720
+        mov word[es:bx],0x0720
         add bx,2
         loop .cls
         
@@ -281,7 +281,7 @@ set_up_gdt_descriptor:
         
         movzx ebx,word [pgdt]                   ; 界限值
         inc bx                                  ; 界限值加1，就是总字节数 也是下一个描述符偏移
-        add ebx [pgdt+2]                        ; 下一个描述符的线性地址
+        add ebx,[pgdt+2]                        ; 下一个描述符的线性地址
         
         mov [es:ebx],eax
         mov [es:ebx+4],edx
@@ -639,7 +639,7 @@ load_relocate_program:
         pop ecx
         loop .b2
 
-        mov esi.[ebp+11*4]                          ; 从堆栈中取得TCB的地址
+        mov esi,[ebp+11*4]                          ; 从堆栈中取得TCB的地址
         
         ; 创建0特级权堆栈
         mov ecx,4096
@@ -713,7 +713,7 @@ load_relocate_program:
         mov edx,[es:esi+0x24]                       ; 0特权级堆栈初始ESP
         mov [es:ecx+4],edx                          ; 登记到TSS （ESP0）
 
-        mov ex,[es:esi+0x22]                        ; 0特权级堆栈段选择子
+        mov edx,[es:esi+0x22]                        ; 0特权级堆栈段选择子
         mov [es:ecx+8],edx                          ; 登记到TSS （SS0）
 
         mov edx,[es:esi+0x32]                       ; 1特权级堆栈初始ESP
@@ -826,7 +826,7 @@ start:
         call sys_routine_seg_sel:put_string
         mov ebx,cpu_brand
         call sys_routine_seg_sel:put_string
-        mob ebx,cpu_brnd1
+        mov ebx,cpu_brnd1
         call sys_routine_seg_sel:put_string
 
         ; 安装为整个系统服务的调用门。特级权之间的控制转移必须使用门
