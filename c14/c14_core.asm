@@ -117,13 +117,13 @@ put_char:
         mov dx,0x3d4
         mov al,0x0e
         out dx,al
-        inc dx
+        inc dx                                  ; 0x3d5
         mov al,bh
         out dx,al
-        dec dx
+        dec dx                                  ; 0x3d4
         mov al,0x0f
         out dx,al
-        inc dx
+        inc dx                                  ; 0x3d5
         mov al,bl
         out dx,al
     
@@ -131,22 +131,193 @@ put_char:
 
         ret
 
-
+;---------------------------------------------------------------------
+;
+; 从硬盘读取一个逻辑扇区
+; @Param EAX 逻辑扇区号
+; @Param DS:EBX 目标缓冲区
+; @Retuen EBX=EBX+512
+;
 read_hard_disk_0:
-        ; TODO
+        push eax
+        push ecx
+        push edx
 
+        push eax
+        
+        mov dx,0x1f2
+        mov al,1
+        out dx,al
+        
+        inc dx
+        pop eax
+        out dx,al
+
+        inc dx
+        mov cl,8
+        shr eax,cl
+        out dx,al
+        
+        inc dx
+        shr eax,cl
+        out dx,al
+        
+        inc dx
+        shr eax,cl
+        or al,0xe0
+        out dx,al
+
+        inc dx
+        mov al,0x20
+        out dx,al
+
+    .waits:
+        in al,dx
+        and al,0x88
+        cmp al,0x08
+        jnz .waits
+
+        mov ecx,256
+        mov dx,0x1f0
+
+    .readw:
+        in ax,dx
+        mov [ebx],ax
+        add ebx,2
+        loop .readw
+
+        pop edx
+        pop ecx
+        pop eax
+        
+        retf
+
+;---------------------------------------------------------------------
+;
+; @Param edx 要转换并显示的数字
+;
 put_hex_dword:
-        ; TODO
+        pushad
+        push ds
 
+        mov ax,core_data_seg_sel                    ; 切换到核心数据段
+        mov ds,ax
+    
+        mov ebx,bin_hex
+        mov ecx,8
+    .xlt:
+        rol edx,4
+        mov eax,edx
+        and eax,0x0000000f
+        xlat
+        
+        push ecx
+        mov cl,al
+        call put_char
+        pop ecx
+        
+        loop .xlt
+            
+        pop ds
+        popad
+        retf
+
+
+;---------------------------------------------------------------------
+;
+; 分配内存
+; @Param ecx 需要分配的字节数
+; @Retuen ecx 起始线性地址
+;
 allocate_memory:
-        ; TODO
+        push ds
+        push eax
+        push ebx
+        
+        mov eax,core_data_seg_sel
+        mov ds,eax
+        
+        mov eax,[ram_alloc]
+        add eax,ecx                             ; 下一次分配时的起始地址
+        
+        ; 这里应当有检测可用内存数量的指令
 
+        mov ecx,[ram_alloc]                     ; 返回分配的起始地址
+        
+        mov ebx,eax
+        and ebx,0xfffffffc
+        add ebx,4
+        test eax,0x00000003
+        cmovnz eax,ebx
+        mov [ram_alloc],eax                     ; 下一次从该地址分配内存
+        
+        pop ebx
+        pop eax
+        pop ds
+        
+        retf
+
+;---------------------------------------------------------------------
+;
+; 在GDT内安装一个新的描述符
+; @Param edx:eax 描述符
+; @Retuen cx 描述符的选择子
+;
 set_up_gdt_descriptor:
-        ; TODO
+        push eax
+        push ebx
+        push edx
+            
+        push ds
+        push es
+            
+        mov ebx,core_data_seg_sel
+        mov ds,ebx
+        
+        sgdt [pgdt]
 
+        mov ebx,mem_0_4_gb_seg_sel
+        mov es,ebx
+        
+        movzx ebx,word [pgdt]                   ; 界限值
+        inc bx                                  ; 界限值加1，就是总字节数 也是下一个描述符偏移
+        add ebx [pgdt+2]                        ; 下一个描述符的线性地址
+        
+        mov [es:ebx],eax
+        mov [es:ebx+4],edx
+
+        add word [pgdt],8                       ; 增加一个描述符的大小
+
+        lgdt [pgdt]
+
+        mov ax,[pgdt]                           ; 得到GDT界限值 16位
+        xor dx,dx
+        mov bx,8
+        div bx                                  ; 除以8，去掉余数。得到索引号
+        mov cx,ax   
+        shl cx,3                                ; 索引号左移3位，留出TI位和RPL位
+    
+        pop es
+        pop ds
+
+        pop edx
+        pop ebx
+        pop eax
+
+        retf
+
+;---------------------------------------------------------------------
+; 构造储存器和系统的段描述符
+; @Param EAX 线性基地址
+; @Param EBX 段界限
+; @Param ECX 属性
+; @Retuen EDX：EAX=描述符
+;
 make_seg_descriptor:
+        mov edx,eax
+        shl eax,16
+        or ax,bx
         ; TODO
-
 ;---------------------------------------------------------------------
 ; 构造门的描述符（调用门等）
 ; @Param EAX 门代码在段内偏移地址
