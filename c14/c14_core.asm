@@ -682,7 +682,7 @@ load_relocate_program:
         shr dword [es:esi+0x36],12                  ; 登记2特级权堆栈尺寸到TCB
         call sys_routine_seg_sel:allocate_memory
         add eax,ecx                                 ; 堆栈必须使用高端地址为基地址
-        mov [es:esi+0x3a],eax                       ; 登记2特级权堆栈基地址到TCB
+        mov [es:esi+0x3a],ecx                       ; 登记2特级权堆栈基地址到TCB
         mov ebx,0xffffe                             ; 段长度（界限）
         mov ecx,0x00c0d600                          ; 4KB粒度，读写，特级权2
         call sys_routine_seg_sel:make_seg_descriptor
@@ -713,23 +713,26 @@ load_relocate_program:
         mov edx,[es:esi+0x24]                       ; 0特权级堆栈初始ESP
         mov [es:ecx+4],edx                          ; 登记到TSS （ESP0）
 
-        mov edx,[es:esi+0x22]                        ; 0特权级堆栈段选择子
-        mov [es:ecx+8],edx                          ; 登记到TSS （SS0）
+        mov dx,[es:esi+0x22]                        ; 0特权级堆栈段选择子
+        mov [es:ecx+8],dx                          ; 登记到TSS （SS0）
 
         mov edx,[es:esi+0x32]                       ; 1特权级堆栈初始ESP
         mov [es:ecx+12],edx                         ; 登记到TSS （ESP1）
 
-        mov dx,[es:esi+0x30]                        ; 0特权级堆栈段选择子
-        mov [es:ecx+16],edx                         ; 登记到TSS （SS1）
+        mov dx,[es:esi+0x30]                        ; 1特权级堆栈段选择子
+        mov [es:ecx+16],dx                         ; 登记到TSS （SS1）
 
         mov edx,[es:esi+0x40]                       ; 2特权级堆栈初始ESP
         mov [es:ecx+20],edx                         ; 登记到TSS （ESP2）
                                                             
         mov dx,[es:esi+0x3e]                        ; 2特权级堆栈段选择子
-        mov [es:ecx+24],edx                         ; 登记到TSS （SS2）
+        mov [es:ecx+24],dx                         ; 登记到TSS （SS2）
  
         mov dx,[es:esi+0x10]                        ; 任务的LDT选择子    
         mov [es:ecx+96],dx                          ; 登记到TSS
+
+        mov dx,[es:esi+0x12]                        ; 任务的I/O位图偏移
+        mov [es:ecx+102],dx                         ; 登记到TSS
 
         mov word [es:ecx+100],0                     ; T=0
 
@@ -856,12 +859,13 @@ start:
         mov ecx,0x46
         call sys_routine_seg_sel:allocate_memory
         call append_to_tcb_link                 ; 将任务控制块追加到TCB链表
+
         push dword 50                           ; 用户程序位于逻辑50扇区
         push ecx                                ; 压如任务控制块起始线性地址
         
         call load_relocate_program
 
-        mov bx,do_status
+        mov ebx,do_status
         call sys_routine_seg_sel:put_string
         
         mov eax,mem_0_4_gb_seg_sel
