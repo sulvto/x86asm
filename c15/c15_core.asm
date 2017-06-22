@@ -60,11 +60,38 @@ start:
         call sys_routine_seg_sel:put_string
 
         ; 安装为整个系统服务的调用门。特权级之间的控制转移必须使用门
+        mov edi,salt                        ; C-SALT表的起始位置
+        mov ecx,salt_items                  ; C-SALT表的条目数量
+
+    .b3:
+        push ecx
+        mov eax,[edi+256]                   ; 该条目入口点的32位偏移地址
+        mov bx,[edi+260]                    ; 该条目入口点的段选择子
+        mov cx,1_11_0_1100_000_00000B       ; 
+        call sys_routine_seg_sel:make_gate_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+260],cx                    ; 将返回的门描述符选择子回填
+        add edi,salt_item_len               ; 下一个C-SALT
+        pop ecx
+        loop .b3
+
+        ; 对门进行测试
+        mov ebx,message_2
+        call far [salt_1+256]               ; 通过门显示信息
+
+        ; 为程序管理器的TSS分配空间
+        mov ecx,104                         ; 为该任务的TSS分配内存
+        call sys_routine_seg_sel:allocate_memory
+        mov [prgman_tss+0x00],ecx           ; 保存程序管理器的TSS地址
+
+        ; 在程序管理器的TSS中设置必要的项目
+        mov word [es:ecx+96],0              ; 没有LDT。处理器允许没有LDT的任务
+        mov word [es:ecx+102],103           ; 没有I/O位图。0特权级事实上不需要
+        mov word [es:ecx+0],0               ; 反向链=0
+        mov dword [es:ecx+28],0             ; 登记CR3（PDBP）
+        mov word [es:ecx+100],0             ; T=0
+                                            
         ; TODO
-
-
-
-
 
 
 
