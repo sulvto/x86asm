@@ -91,9 +91,54 @@ start:
         mov dword [es:ecx+28],0             ; 登记CR3（PDBP）
         mov word [es:ecx+100],0             ; T=0
                                             
-        ; TODO
+        ;  创建TSS描述符，并安装到GDT中
+        mov eax,ecx                         ; TSS的起始线性地址 
+        mov ebx,103                         ; 段长度
+        mov ecx,0x00408900                  ; TSS描述符，特权级0
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [prgman_tss+0x04],cx            ; 保存程序管理器的TSS描述符选择子
+        
+        ; 任务寄存器TR中的内容存在的标志，该内容也决定了当前任务是谁
+        ; 下面的指令为当前正在执行的0特权级任务“程序管理器”后补手续（TSS）
+        ltr cx
 
+        ; 现在可以认为“程序管理器”任务正在执行中
+        mov ebx,prgman_msg1
+        call sys_routine_seg_sel:put_string
 
+        mov ecx,0x46
+        call sys_routine_seg_sel:allocate_memory
+        call append_to_tcb_link             ; 将此TCB添加到TCB链中
+
+        push dword 50                       ; 用户程序位于逻辑50扇区
+        push ecx                            ; 压入任务控制块起始线性地址
+    
+        call load_relocate_program
+    
+        call far [es:ecx+0x14]              ; 执行任务切换。
+
+        ; 重新加载并切换任务
+        mov ebx,prgman_msg2
+        call sys_routine_seg_sel:put_string
+
+        mov ecx,0x46
+        call sys_routine_seg_sel:allocate_memory
+        call append_to_tcb_link
+        
+        push dword 50
+        push ecx
+
+        call load_relocate_program
+
+        jmp far [es:ecx+0x14]
+    
+        mov ebx,prgman_msg3
+        call sys_routine_seg_sel:put_string
+
+        hlt
+
+core_code_end:
 
 ;---------------------------------------------------------------------
 SECTION core_trail
