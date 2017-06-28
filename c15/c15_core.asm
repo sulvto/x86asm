@@ -20,6 +20,354 @@
         [bits 32]
 SECTION sys_routine vstart=0
 ;---------------------------------------------------------------------
+; 字符串显示
+put_string:
+        push ecx
+    .getc:
+        mov cl,[ebx]
+        or cl,cl
+        jz .exit
+        call put_char
+        inc ebx
+        jmp .getc
+
+    .exit:
+        pop ecx
+        retf
+
+;---------------------------------------------------------------------
+put_char:
+        pushad
+        
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        in al,dx
+        mov ah,al
+        
+        dec dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        in al,ax
+        mov bx,ax
+
+        cmp cl,0x0d
+        jnz .put_0a
+        mov ax,bx
+        mov bl,80
+        div bl
+        mul bl
+        mov bx,ax
+        jmp .set_cursor
+
+    .put_0a:
+        cmp cl,0x0a
+        jnz .put_other
+        add bx,80
+        jmp .roll_screen
+
+    .put_other:
+        push es
+        mov eax,video_ram_seg_sel
+        mov es,eax
+        shl bc,1
+        mov [es:bx],cl
+        pop es
+
+        shr bx,1
+        inc bx
+        
+    .roll_screen:
+        cmp bx,2000
+        jl .set_cursor
+    
+        push ds
+        push es
+        mov eax,video_ram_seg_sel
+        mov ds,eax
+        mov es,eax
+        cld
+        mov esi,0xa0
+        mov edi,0x00
+        mov ecx,1920
+        rep movsd
+        mov bx,3840
+        mov ecx,80
+
+    .cls:
+        mov word[es:bx],0x0720
+        add bx,2
+        loop .cls
+
+        pop es
+        pop ds
+
+        mov bx,1920
+
+    .set_cursor:
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        mov al,bh
+        out dx,al
+        dec dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        mov al,bl
+        out dx,al
+        
+        popad
+        
+        ret
+
+;---------------------------------------------------------------------
+; 从硬盘读取一个逻辑扇区
+; @Param EAX=逻辑扇区号
+; @Param DS:EBX=目标缓冲区地址
+; @Return EBX=EBX+512
+read_hard_disk_0:
+        push eax
+        push ecx
+        push edx
+        
+        push eax
+        
+        mov dx,0x1f2
+        mov al,1
+        out dx,al
+        
+        inc dx
+        pop eax
+        out dx,al
+
+        inc dx
+        mov cl,8
+        shr eax,cl
+        out dx,al
+
+        inc dx
+        shr eax,cl
+        out dx,al
+
+        inc dx
+        shr eax,cl  
+        or al,0xe0
+        out dx,al
+    
+        inc dx
+        mov al,0x20
+        out dx,al
+
+    .waits:
+        in al,dx
+        and al,0x88
+        cmp al,0x08
+        jnz .waits
+        
+        mov ecx,256
+        mov dx,0x1f0
+    
+    .readw:
+        in ax,dx
+        mov [ebx],ax
+        add ebx,2
+        loop .readw
+
+        pop edx
+        pop ecx
+        pop eax
+
+        retf
+
+;---------------------------------------------------------------------
+
+put_hex_dword:
+        pushad
+        push ds
+        
+        mov ax,core_data_seg_sel
+        mov ds,ax
+
+        mov ebx,bin_hex
+        mov ecx,8
+    .xlt:
+        rol edx,4
+        mov eax,edx
+        and eax,0x0000000f
+        xlat
+
+        push ecx
+        mov cl,al
+        call put_char
+        pop ecx
+        
+        loop .xlt
+
+        pop ds
+        popad
+        retf
+
+;---------------------------------------------------------------------
+; 分配内存
+; @Param ECX= 分配字节数
+; @Return ECX= 起始线性地址 
+allocate_memory:
+        push ds
+        push eax
+        push ebx
+
+        mov eax,core_data_seg_sel
+        mov dx,eax
+        
+        mov eax,[ram_alloc]
+        add eax,ecx
+    
+        mov ecx,[ram_alloc]
+
+        mov ebx,eax
+        and ebx,0xfffffffc
+        add ebx,4
+        test eax,0x00000003
+        cmovnz eax,ebx
+        mov [ram_alloc],eax
+
+        pop edx
+        pop eax
+        pop ds
+        
+        retf
+
+;---------------------------------------------------------------------
+
+set_up_gdt_descriptor:
+        push eax
+        push ebx
+        push edx
+
+        push ds
+        push es
+
+        mov edx,core_data_seg_sel
+        mov ds,ebx
+
+        sgdt [pgdt]
+    
+        mov ebx,mem_0_4_gb_seg_sel
+        mov es,ebx
+
+        movzx ebx,word [pgdt]
+        inc bx
+        add ebx,[pgdt+2]
+
+        mov [es:ebx],eax
+        mov [es:ebx+4],edx
+
+        add word [pgdt],8
+
+        lgdt [pgdt]
+
+        mov ax,[pgdt]
+        xor dx,dx
+        mov bx,8
+        div bx  
+        mov cx,ax
+        shl cx,3
+
+        pop es
+        pop ds
+
+        pop edx
+        pop ebx
+        pop eax
+
+        retf
+
+;---------------------------------------------------------------------
+
+make_seg_descriptor:
+        mov edx,eax
+        shl eax,16
+        or ax,bx
+
+        and edx,0xffff0000
+        rol edx,8
+        bswap edx
+    
+        xor bx,bx
+        or edx,ebx
+
+        or edx,ecx
+
+        retf
+
+;---------------------------------------------------------------------
+
+make_gate_descriptor:
+        push ebx
+        push ecx
+        
+        mov edx,eax
+        and edx,0xffff0000
+        or dx,cx
+    
+        and eax,0x0000ffff
+        shl ebx,16
+        or eax,ebx
+
+        pop ecx
+        pop ebx
+
+        retf
+
+;---------------------------------------------------------------------
+terminate_current_task:
+    ; TODO
+
+sys_routine_end:
+
+;=====================================================================
+SECTION core_data vstart=0
+        pgdt        dw  0
+                    dd  0
+
+        ram_alloc   dd  0x00100000
+
+        salt:
+        salt_1      db  '@PrintString'
+                times 256-($-salt_1) db 0
+                    dd put_string
+                    dw  sys_routine_seg_sel
+
+        salt_2      db  '@ReadDiskData'
+                times 256-($-salt_2) db 0
+                    dd read_hard_disk_0
+                    dw  sys_routine_seg_sel
+
+        salt_3      db  '@PrintDWordAsHexString'
+                times 256-($-salt_3) db 0
+                    dd put_hex_dword
+                    dw  sys_routine_seg_sel
+                                                   
+        salt_4      db  '@TerminateProgram'
+                times 256-($-salt_4) db 0
+                    dd terminate_current_task
+                    dw  sys_routine_seg_sel
+
+        salt_item_len   equ $-salt_4
+        salt_items      equ ($-salt)/salt_item_len
+
+        message_1;;TODO
+
+
+
+
+
+
+
 
 start:
         mov ecx,core_data_seg_sel
