@@ -360,7 +360,226 @@ SECTION core_data vstart=0
         salt_item_len   equ $-salt_4
         salt_items      equ ($-salt)/salt_item_len
 
-        message_1;;TODO
+        message_1   db  '  If you seen this message,that means we '
+                    db  'are now in protect mode,and the system '
+                    db  'core is loaded,and the video display '
+                    db  'routine works perfectly.',0x0d,0x0a,0
+
+        message_2   db  '  System wide CALL-GATE mounted.',0x0d,0x0a,0
+
+        bin_hex     db  '0123456789ABCDEF'
+    
+        core_buf    times 2048 db 0
+
+        cpu_brnd0   db  0x0d,0x0a,'  ',0
+        cpu_brand   times 52 db 0
+        cpu_brnd1   db  0x0d,0x0a,0x0d,0x0a,0
+
+        ; 任务控制链
+        tcb_chain   dd  0
+
+        ; 任务管理器的任务信息
+        prgman_tss  dd  0               ; 任务管理器的TSS基地址
+                    dw  0               ; 任务管理器的TSS描述表
+
+
+
+        prgman_msg1      db  0x0d,0x0a
+                         db  '[PROGRAM MANAGER]: Hello! I am Program Manager,'
+                         db  'run at CPL=0.Now,create user task and switch '
+                         db  'to it by the CALL instruction...',0x0d,0x0a,0
+                
+        prgman_msg2      db  0x0d,0x0a
+                         db  '[PROGRAM MANAGER]: I am glad to regain control.'
+                         db  'Now,create another user task and switch to '
+                         db  'it by the JMP instruction...',0x0d,0x0a,0
+                
+        prgman_msg3      db  0x0d,0x0a
+                         db  '[PROGRAM MANAGER]: I am gain control again,'
+                         db  'HALT...',0
+
+        core_msg0        db  0x0d,0x0a
+                         db  '[SYSTEM CORE]: Uh...This task initiated with '
+                         db  'CALL instruction or an exeception/ interrupt,'
+                         db  'should use IRETD instruction to switch back...'
+                         db  0x0d,0x0a,0
+
+        core_msg1        db  0x0d,0x0a
+                         db  '[SYSTEM CORE]: Uh...This task initiated with '
+                         db  'JMP instruction,  should switch to Program '
+                         db  'Manager directly by the JMP instruction...'
+                         db  0x0d,0x0a,0
+
+
+core_data_end:
+
+;=====================================================================
+
+SECTION core_code vstart=0
+;---------------------------------------------------------------------
+fill_descriptor_in_ldt:
+
+        ; TODO
+
+;---------------------------------------------------------------------
+; 加载并重定位用户程序
+; @Param PUSH 逻辑扇区号
+; @Param PUSH 任务控制块基地址
+; 
+load_relocate_program:
+        pushad
+
+        push ds
+        push es
+    
+        mov ebp,esp
+        
+        mov ecx,mem_0_4_gb_seg_sel
+        mov es,ecx
+    
+        mov esi,[ebp+11*4]
+
+        mov ecx,160
+        call sys_routine_seg_sel:allocate_memory
+        mov [es:esi+0x0c],ecx
+        mov word [es:esi+0x0a],0xffff
+
+        mov eax,core_data_seg_sel
+        mov ds,eax
+    
+        mov eax,[ebp+12*4]
+        mov ebx,core_buf
+        call sys_routine_seg_sel:read_hard_disk_0
+
+        mov eax,[core_buf]
+        mov ebx,eax
+        and ebx,0xfffffe00
+        add ebx,512
+        test eax,0x000001ff
+        cmovnz  eax,ebx
+        
+        mov ecx,eax
+        call sys_routine_seg_sel:allocate_memory
+        mov [es:esi+0x06],ecx
+    
+        mov ebx,ecx
+        xor edx,edx
+        mov edx,512
+        div ecx
+
+        mov eax,mem_0_4_gb_seg_sel
+        mov ds,eax
+
+        mov eax,[ebp+12*4]
+    .b1:
+        call sys_routine_seg_sel:read_hard_disk_0
+        inc eax
+        loop .b1
+
+        mov edi,[es:esi+0x06]
+
+        mov eax,edi
+        mov ebx,[edi+0x04]
+        dec ebx
+        mov ecx,0x0040f200
+        call sys_routine_seg_sel:make_seg_descriptor
+ 
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+
+        or cx,0000_0000_0000_0011B
+        mov [es:esi+0x44],cx
+        mov [edi+0x04],cx
+
+        mov eax,edi
+        add eax,[edi+0x14]
+        mov ebx,[edi+0x18]
+        dec ebx
+        mov ecx,0x0040f800
+        call sys_routine_seg_sel:make_seg_descriptor
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+        or cx,0000_0000_0000_0011B
+        mov [edi+0x14],cx
+
+        mov eax,edi
+        add eax,[edi+0x1c]
+        mov ebx,[edi+0x20]
+        dec ebx
+        mov ecx,0x0040f200
+        call sys_routine_seg_sel:make_seg_descriptor
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+        or cx,0000_0000_0000_0011B
+        mov [edi+0x1c],cx
+        
+        mov ecx,[edi+0x0c]
+        mov ebx,0x000fffff
+        sub ebx,ecx
+        mov eax,4096
+        mul ecx
+        mov ecx,eax
+        call sys_routine_seg_sel:allocate_memory
+        add eax,ecx
+        mov ecx,0x00c0f600
+        call sys_routine_seg_sel:make_seg_descriptor
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+        or cx,0000_0000_0000_0011B
+        mov [edi+0x08],cx
+    
+        mov eax,mem_0_4_gb_seg_sel
+        mov es,eax
+        
+        mov eax,core_data_seg_sel
+        mov ds,eax
+
+        cld
+
+        mov ecx,[es:edi+0x24]
+        add edi,0x28
+    .b2:
+        push ecx
+        push edi
+
+        mov ecx,salt_items
+        mov esi,salt
+    .b3:
+        push edi
+        push esi
+        push ecx
+
+        mov ecx,64
+        repe cmpsd
+        jnz .b4
+        mov eax,[esi]
+        mov [es:esi-256],eax
+        mov ax,[esi+4]
+        or ax,0000000000000011B
+
+        mov [es:edi-252],ax
+
+    .b4:
+        
+        pop ecx
+        pop esi
+        add esi,salt_item_len
+        pop edi
+        loop .b3
+
+        pop edi
+        add edi,256
+        pop ecx
+        loop .b2 
+
+        mov esi,[ebp+11*4]
+        ; TODO
+
+
+
+
+
+
 
 
 
