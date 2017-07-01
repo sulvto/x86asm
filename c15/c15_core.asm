@@ -50,7 +50,7 @@ put_char:
         mov al,0x0f
         out dx,al
         inc dx
-        in al,ax
+        in al,dx
         mov bx,ax
 
         cmp cl,0x0d
@@ -72,7 +72,7 @@ put_char:
         push es
         mov eax,video_ram_seg_sel
         mov es,eax
-        shl bc,1
+        shl bx,1
         mov [es:bx],cl
         pop es
 
@@ -221,7 +221,7 @@ allocate_memory:
         push ebx
 
         mov eax,core_data_seg_sel
-        mov dx,eax
+        mov ds,eax
         
         mov eax,[ram_alloc]
         add eax,ecx
@@ -235,7 +235,7 @@ allocate_memory:
         cmovnz eax,ebx
         mov [ram_alloc],eax
 
-        pop edx
+        pop ebx
         pop eax
         pop ds
         
@@ -250,8 +250,8 @@ set_up_gdt_descriptor:
 
         push ds
         push es
-
-        mov edx,core_data_seg_sel
+        
+        mov ebx,core_data_seg_sel
         mov ds,ebx
 
         sgdt [pgdt]
@@ -276,6 +276,9 @@ set_up_gdt_descriptor:
         div bx  
         mov cx,ax
         shl cx,3
+
+        
+        
 
         pop es
         pop ds
@@ -335,7 +338,7 @@ terminate_current_task:
         mov eax,core_data_seg_sel
         mov ds,eax
         
-        text dx,0100_0000_0000_0000B        ; test NT 位
+        test dx,0100_0000_0000_0000B        ; test NT 位
         jnz .b1
         mov ebx,core_msg1
         call sys_routine_seg_sel:put_string
@@ -343,7 +346,7 @@ terminate_current_task:
 
     .b1:
         mov ebx,core_msg0
-        call sys_routine_end:put_string
+        call sys_routine_seg_sel:put_string
         iretd
         
 
@@ -525,8 +528,9 @@ load_relocate_program:
     
         mov ebx,ecx
         xor edx,edx
-        mov edx,512
+        mov ecx,512
         div ecx
+        mov ecx,eax
 
         mov eax,mem_0_4_gb_seg_sel
         mov ds,eax
@@ -614,7 +618,7 @@ load_relocate_program:
         repe cmpsd
         jnz .b4
         mov eax,[esi]
-        mov [es:esi-256],eax
+        mov [es:edi-256],eax
         mov ax,[esi+4]
         or ax,0000000000000011B
 
@@ -859,14 +863,18 @@ start:
         mov edi,salt                        ; C-SALT表的起始位置
         mov ecx,salt_items                  ; C-SALT表的条目数量
 
+
     .b3:
         push ecx
         mov eax,[edi+256]                   ; 该条目入口点的32位偏移地址
         mov bx,[edi+260]                    ; 该条目入口点的段选择子
         mov cx,1_11_0_1100_000_00000B       ; 
+
         call sys_routine_seg_sel:make_gate_descriptor
         call sys_routine_seg_sel:set_up_gdt_descriptor
+
         mov [edi+260],cx                    ; 将返回的门描述符选择子回填
+
         add edi,salt_item_len               ; 下一个C-SALT
         pop ecx
         loop .b3
@@ -911,7 +919,6 @@ start:
         push ecx                            ; 压入任务控制块起始线性地址
     
         call load_relocate_program
-    
         call far [es:ecx+0x14]              ; 执行任务切换。
 
         ; 重新加载并切换任务
