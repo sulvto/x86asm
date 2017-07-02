@@ -277,11 +277,50 @@ set_up_gdt_descriptor:
         pop eax
 
         retf
-
+;---------------------------------------------------------------------
+; 构造存储器和系统的段描述符
+; @Param EAX=线性基地址
+; @Param EBX=段界限
+; @Param ECX=属性
+; @Return EDX：EAX=描述符
 make_seg_descriptor:
-        ; TODO
+        mov edx,eax
+        shl eax,16
+        or ax,bx
+        
+        and edx,0xffff0000
+        rol edx,8
+        bswap edx
+
+        xor bx,bx
+        or edx,ebx
+        
+        or edx,ecx
+        retf
+;---------------------------------------------------------------------
+; 构造门的描述符(p259)
+; @Param EAX=门代码在段内偏移地址
+; @Param BX=门代码所在段的选择子
+; @Param CX=段类型及属性
+; @Return EDX：EAX=完整的描述符
+
 make_gate_descriptor:
-        ; TODO
+        push ebx
+        push ecx
+
+        mov edx,eax
+        and edx,0xffff0000
+        or dx,cx
+        
+        and eax,0x0000ffff
+        shl ebx,16        
+        or eax,ebx
+
+        pop ecx
+        pop ebx
+        
+        retf
+
 allocate_a_4k_page:
         ; TODO
 alloc_inst_a_page:
@@ -364,8 +403,48 @@ fill_descriptor_in_ldt:
         ; TODO
 load_relocate_program:
         ; TODO
+
+;---------------------------------------------------------------------
+; 在TCB链上追加任务控制块
+; @Param ECX=TCB线性基地址
+;
 append_to_tcb_link:
-        ; TODO
+        push eax
+        push edx
+        push ds
+        push es
+            
+        mov eax,core_data_seg_sel
+        mov ds,eax
+        mov eax,mem_0_4_gb_seg_sel
+        mov es,eax
+
+        mov dword [ed+ecx+0x00],0
+        
+        mov eax,[tcb_chain]
+        or eax,eax
+        jz .notcb
+
+    .searc:
+        mov edx,eax
+        mov eax,[es:edx+0x00]
+        or eax,eax
+        jz .searc    
+
+        mov [es:edx+0x00],ecx
+        jmp .retpc
+
+    .notcb:
+        mov [tcb_chain],ecx
+
+    .retpc:
+        pop es
+        pop ds
+        pop edx
+        pop eax
+
+        ret
+;---------------------------------------------------------------------
 start:
         ; TODO
 core_code_end:
