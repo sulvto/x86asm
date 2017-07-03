@@ -327,8 +327,23 @@ alloc_inst_a_page:
         ; TODO
 create_copy_cur_pdir:
         ; TODO
+
+;---------------------------------------------------------------------
+;
+; 终止当前任务
+;
 terminate_current_task:
-        ; TODO
+        mov eax,core_data_seg_sel
+        mov ds,eax
+        
+        pushfd
+        pop edx
+
+        test dx,0100_0000_0000_0000B
+        jnz .b1
+        jmp far [program_man_tss]
+    .b1:
+        iretd        
 
 sys_routine_end:
 
@@ -446,7 +461,120 @@ append_to_tcb_link:
         ret
 ;---------------------------------------------------------------------
 start:
+        mov ecx,core_data_seg_sel
+        mov ds,ecx
+
+        mov ecx,mem_0_4_gb_seg_sel
+        mov es,ecx
+        
+        mov ebx,message_0
+        call sys_routine_seg_sel:put_string
+
+        ; 显示处理器信息
+                
+        mov eax,0x80000002
+        cpuid
+        mov [cpu_brand + 0x00],eax
+        mov [cpu_brand + 0x04],ebx
+        mov [cpu_brand + 0x08],ecx
+        mov [cpu_brand + 0x0c],edx
+      
+        mov eax,0x80000003
+        cpuid
+        mov [cpu_brand + 0x10],eax
+        mov [cpu_brand + 0x14],ebx
+        mov [cpu_brand + 0x18],ecx
+        mov [cpu_brand + 0x1c],edx
+
+        mov eax,0x80000004
+        cpuid
+        mov [cpu_brand + 0x20],eax
+        mov [cpu_brand + 0x24],ebx
+        mov [cpu_brand + 0x28],ecx
+        mov [cpu_brand + 0x2c],edx
+
+        mov ebx,cpu_brnd0                  ;显示处理器品牌信息 
+        call sys_routine_seg_sel:put_string
+        mov ebx,cpu_brand
+        call sys_routine_seg_sel:put_string
+        mov ebx,cpu_brnd1
+        call sys_routine_seg_sel:put_string
+ 
+
+        ; 准备打开分页机制
+
+        ; 创建系统内核的页目录表PDT
+        ; 页目录表清零
+        mov ecx,1024                        ; 1024 个目录项
+        mov ebx,0x00020000                  ; 页目录的物理地址
+        xor esi,esi
+    .b1:
+        mov dword [es:ebx+esi],0x00000000   ; 页目录表项清零
+        add esi,4
+        loop  .b1
+
+        ; 在页目录内创建指向页目录自己的目录项
+        mov dword [es:ebx+4092],0x00020003
+
+        ; 在页目录内创建与线性地址0x00000000对应的目录项
+        mov dword [es:ebx+0],0x00021003     ; 写入目录项
+
+        ; 创建与上面那个目录项相对应的页表，初始化页表项
+        mov ebx,0x00021000
+        xor eax,eax
+        xor esi,esi
+    .b2:
+        mov edx,eax
+        or edx,0x00000003
+        mov [es:ebx+esi*4],edx              ; 登记页的物理地址
+        add eax,0x1000                      ; 下一个相邻页的物理地址
+        inc esi
+        cmp esi,256                         ; 仅低端1MB内存对应的页才是有效的
+        jl .b2
+
+    .b3:                                    ; 其余的页表项置为无效
+        mov dword [es:ebx+esi*4],0x00000000
+        inc esi
+        cmp esi,1024
+        jl .b3
+    
+        ; 令CR3寄存器指向页目录，并正式开启页功能
+        mov eax,0x00020000                  ; PCD=PWT=0
+        mov cr3,eax
+
+        mov eax,cr0
+        or eax,0x80000000
+        mov cr0,eax                         ; 开启分页机制
+    
         ; TODO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 core_code_end:
 
 ;=====================================================================
