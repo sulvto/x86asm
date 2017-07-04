@@ -546,19 +546,43 @@ start:
         or eax,0x80000000
         mov cr0,eax                         ; 开启分页机制
     
+        ; 在页目录内创建与线性地址0x80000000对应的目录项
+        mov ebx,0xfffff000                  ; 页目录自己的线性地址
+        mov esi,0x80000000                  ; 映射的起始地址
+        shr esi,22                          ; 线性地址的高10位是目录索引
+        shl esi 2                           ;
+        mov dword [es:ebx+esi],0x00021003   ; 写入目录项（页表的物理地址和属性）                        
+
+        ; 将GDT中的段描述符映射到线性地址0x80000000
+        sgdt [pgdt]
+
+        mov ebx,[pgdt+2]
+    
+        or dword [es:ebx+0x10+4],0x80000000
+        or dword [es:ebx+0x18+4],0x80000000
+        or dword [es:ebx+0x20+4],0x80000000
+        or dword [es:ebx+0x28+4],0x80000000
+        or dword [es:ebx+0x30+4],0x80000000
+        or dword [es:ebx+0x38+4],0x80000000
+
+        add dword [pgdt+2],0x80000000       ; GDTR也用线性地址
+        
+        lgdt [pgdt]
+
+        jmp core_code_seg_sel:flush         ; 刷新段寄存器CS，启用高端线性地址
+
+    flush:
+        mov eax,core_stack_seg_sel
+        mov ss,eax
+        
+        mov eax,core_data_seg_sel
+        mov dx,eax
+
+        mov ebx,message_1
+        call sys_routine_seg_sel:put_string
+    
+        ; 安装为整个系统服务的调用门。
         ; TODO
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
