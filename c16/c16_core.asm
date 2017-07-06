@@ -321,10 +321,78 @@ make_gate_descriptor:
         
         retf
 
+;---------------------------------------------------------------------
+; 分配一个4KB的页
+; @Return EAX=页的物理地址
+;
 allocate_a_4k_page:
-        ; TODO
+        push ebx
+        push ecx
+        push edx
+        push ds
+        
+        mov eax,core_data_seg_sel
+        mov ds,eax
+        
+        xor eax,eax
+    .b1:
+        bts [page_bit_map],eax
+        jnc .b2
+        inc eax
+        cmp eax,page_map_len*8
+        ji .b1
+    
+        ; 没有可以分配的页，停机
+        mov ebx,message_3
+        call sys_routine_seg_sel:put_string
+        hlt                         
+        
+    .b2:
+        shl eax,12              ; 乘以4096（0x1000）
+
+        pop ds
+        pop edx
+        pop ecx
+        pop ebx
+        
+        ret
+;---------------------------------------------------------------------
+; 分配一个页，并安装在当前活动的层次分页结构中
+; @Param EBX=页的线性地址
+; 
 alloc_inst_a_page:
-        ; TODO
+        push eax
+        push ebx
+        push esi
+        push ds
+
+        mov eax,mem_0_4_gb_seg_sel
+        mov ds,eax
+                
+        ; 检查该线性地址所对应的页表是否存在
+        mov esi,ebx
+        ; 1111111111000000 0000000000000000
+        and esi,0xffc00000                  ; 保留高10位
+        shr esi,20                          ; 得到页目录索引，并乘以4
+        or esi,0xfffff000                   ; 页目录自身的线性地址+表内偏移
+        
+        test dword [esi],0x00000001         ; P位是否为"0".检查该线性
+        jnz .b1                             ; 地址是否已经有对应的页表
+        
+        ; 创建该线性地址所对应的页表
+        call allocate_a_4k_page             ; 分配一个页作为页表  
+        or eax,0x00000007                   ; 111
+        mov [esi],eax        
+
+    .b1:
+        ; 开始访问该线性地址所对应的页表
+        mov esi,ebx
+        shr esi,10
+        and esi,0x003ff000
+        or esi,0xffc00000
+      ; TODO 
+
+
 create_copy_cur_pdir:
         ; TODO
 
@@ -352,7 +420,14 @@ SECTION core_data vstart=0
         pgdt            dw  0               ; 用于设置和修改GDT
                         dd  0
 
-        page_bit_map    db  ; TODO
+        page_bit_map    db  0xff,0xff,0xff,0xff,0xff,0x55,0x55,0xff
+                        db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+                        db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+                        db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+                        db  0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55
+                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
         page_map_len    equ $-page_bit_map
 
         ; 符号地址检索表
@@ -550,12 +625,13 @@ start:
         mov ebx,0xfffff000                  ; 页目录自己的线性地址
         mov esi,0x80000000                  ; 映射的起始地址
         shr esi,22                          ; 线性地址的高10位是目录索引
-        shl esi 2                           ;
-        mov dword [es:ebx+esi],0x00021003   ; 写入目录项（页表的物理地址和属性）                        
+        shl esi,2
+        mov dword [es:ebx+esi],0x00021003   ; 写入目录项（页表的物理地址和属性）
+                                            ; 目标单元的线性地址为0xFFFFF200
 
         ; 将GDT中的段描述符映射到线性地址0x80000000
-        sgdt [pgdt]
-
+        sgdt [[pgdt]
+    
         mov ebx,[pgdt+2]
     
         or dword [es:ebx+0x10+4],0x80000000
@@ -565,25 +641,50 @@ start:
         or dword [es:ebx+0x30+4],0x80000000
         or dword [es:ebx+0x38+4],0x80000000
 
-        add dword [pgdt+2],0x80000000       ; GDTR也用线性地址
-        
-        lgdt [pgdt]
+        add dword [pgdt+2],0x80000000       ; GDTR也用的是线性地址
 
+        lgdt [pgdt]
+        
         jmp core_code_seg_sel:flush         ; 刷新段寄存器CS，启用高端线性地址
 
     flush:
         mov eax,core_stack_seg_sel
-        mov ss,eax
-        
+        mov es,eax
+    
         mov eax,core_data_seg_sel
-        mov dx,eax
+        mov ds,eax
 
         mov ebx,message_1
         call sys_routine_seg_sel:put_string
-    
-        ; 安装为整个系统服务的调用门。
-        ; TODO
 
+        ; 安装为整个系统服务的调用门。特权级之间的控制转移必须使用门
+        mov edi,salt    
+        mov ecx,salt_items
+    .b4:
+        push ecx
+        mov eax,[edi+256]                   ; 32位偏移地址
+        mov bx,[edi+260]                    ; 段选择子
+        mov cx,1_11_0_1100_000_00000B       ; 特权级3的调用门（3以上的特权级才允许访问），0个参数（因为用寄存器传递参数，而没有用栈）
+        call sys_routine_seg_sel:make_gate_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [edi+260],cx                    ; 回填门描述符选择子
+        add edi,salt_item_len               ; 下一个条目
+        pop ecx
+        loop .b4
+
+        ; 对门进行测试
+        mov ebx,message_2
+        call far [salt_1+256]               ; 通过门显示信息（偏移量将被忽略）
+    
+        ; 为程序管理程序的TSS分配内存空间
+        mov ebx,[core_next_laddr]
+        call sys_routine_seg_sel:alloc_inst_a_page
+        add dword [core_next_laddr],4096
+
+        ; 在程序管理器的TSS中设置必要的项目
+        mov word [es:ebx+0],0               ; 反向链=0
+        
+        
 
 
 
