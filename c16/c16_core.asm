@@ -388,11 +388,33 @@ alloc_inst_a_page:
         ; 开始访问该线性地址所对应的页表
         mov esi,ebx
         shr esi,10
-        and esi,0x003ff000
-        or esi,0xffc00000
-      ; TODO 
 
+        ; 00000000001111111111000000000000
+        and esi,0x003ff000                  ; 或0xfffff000，因高10位是零
+        ; 11111111110000000000000000000000
+        or esi,0xffc00000                   ; 得到该页表的线性地址
+        
+        ; 得到该线性地址在页表的对应条目（页表项） 
+        ; 11111111110000000000000000000000
+        and ebx,0x003ff000
+        shr ebx,10                          ; 相当于右移12位，再乘以4
+        or esi,ebx                          ; 页表项的线性地址
+        call allocate_a_4k_page             ; 分配一个页，这才是需要安装的页
+        ; 0...007
+        or eax,0x00000007
+        mov [esi],eax
 
+        pop ds
+        pop esi
+        pop ebx
+        pop eax
+        
+        retf
+
+;---------------------------------------------------------------------
+; 创建新页目录，并复制当前页目录内容
+; @Return EAX=新页目录的物理地址
+;
 create_copy_cur_pdir:
         ; TODO
 
@@ -424,81 +446,6 @@ SECTION core_data vstart=0
                         db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
                         db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
                         db  0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
-                        db  0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55
-                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
-                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
-                        db  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
-        page_map_len    equ $-page_bit_map
-
-        ; 符号地址检索表
-        salt:
-        salt_1          db  '@PringString'
-                    times 256-($-salt_1) db 0
-                        dd put_string
-                        dw sys_routine_seg_sel
-
-        salt_2          db  '@ReadDiskData'
-                    times 256-($-salt_2) db 0
-                        dd read_hard_disk_0
-                        dw sys_routine_seg_sel
-    
-        salt_3          db  '@PrintDWordAsHexString'
-                    times 256-($-salt_3) db 0
-                        dd put_hex_dword
-                        dw sys_routine_seg_sel
-
-        salt_4          db  '@TerminateProgram'
-                    times 256-($-salt_4) db 0
-                        dd terminate_current_task
-                        dw sys_routine_seg_sel
-
-        salt_item_len   equ $-salt_4
-        salt_items      equ ($-salt)/salt_item_len
-
-        message_0       db  '    Working in system core,protect mode.'
-                        db  0x0d,0x0a,0
-
-        message_1       db  '   Paging is enabld.System core is mappe'
-                        db  'd to address 0x80000000.',0x0d,0x0a,0
-                        
-        message_2       db  0x0d,0x0a
-                        db  '   System wide CALL-GATE mounted.',0x0d,0x0a,0
-        message_3       db  '********* No more pages *********'
-
-        message_4       db  0x0d,0x0a,'   Task switching...@_@',0x0d,0x0a,0
-
-        message_5       db  0x0d,0x0a,'   Procesor HALT.',0
-
-        bin_hex         db  '0123456789ABCDEF'   ; put_hex_dword 用的查找表
-
-        core_buf  times 512 db 0                ; 内核用的缓冲区
-
-        cpu_brnd0
-        cpu_brand   times 52 db 0       
-        cpu_brnd1       db  0x0d,0x0a,0x0d,0x0a,0
-
-        tcb_chain       dd 0                    ; 任务控制块
-
-        ; 内核信息
-        core_next_laddr dd  0x80100000          ; 内核空间中下一个可分配的线性地址
-        program_man_tss dd  0                   ; 程序管理器的TSS描述符选择子
-                        dw  0
-
-core_data_end:
-
-;=====================================================================
-SECTION core_code   vstart=0
-
-fill_descriptor_in_ldt:
-        ; TODO
-load_relocate_program:
-        ; TODO
-
-;---------------------------------------------------------------------
-; 在TCB链上追加任务控制块
-; @Param ECX=TCB线性基地址
-;
-append_to_tcb_link:
         push eax
         push edx
         push ds
@@ -621,7 +568,7 @@ start:
         or eax,0x80000000
         mov cr0,eax                         ; 开启分页机制
     
-        ; 在页目录内创建与线性地址0x80000000对应的目录项
+         ; 在页目录内创建与线性地址0x80000000对应的目录项
         mov ebx,0xfffff000                  ; 页目录自己的线性地址
         mov esi,0x80000000                  ; 映射的起始地址
         shr esi,22                          ; 线性地址的高10位是目录索引
@@ -630,7 +577,7 @@ start:
                                             ; 目标单元的线性地址为0xFFFFF200
 
         ; 将GDT中的段描述符映射到线性地址0x80000000
-        sgdt [[pgdt]
+        sgdt [pgdt]
     
         mov ebx,[pgdt+2]
     
@@ -684,7 +631,39 @@ start:
         ; 在程序管理器的TSS中设置必要的项目
         mov word [es:ebx+0],0               ; 反向链=0
         
+        mov eax,cr3
+        mov dword [es:ebx+28],eax           ; 登记CR3（PDBR）
         
+        mov word [es:ebx+96],0              ; 没有LDT。处理器允许没有LDT的任务
+        mov word [es:ebx+100],0             ; T=0
+        mov word [es:ebx+102],103           ; 没有I/O位图。0特权级事实上不需要
+        
+        ; 创建程序管理器的TSS描述符， 并安装到GDT中
+        mov eax,ebx                         ; TSS的起始线性地址
+        mov ebx,103                         ; 段长度
+        mov ecx,0x00408900                  ; TSS描述符，特权级0
+        call sys_routine_seg_sel:make_seg_descriptor
+        call sys_routine_seg_sel:set_up_gdt_descriptor
+        mov [program_man_tss+4],cx          ; 保存程序管理器的TSS描述符选择子
+    
+        ; 任务寄存器TR中的内容是任务存在的标志。该内容也决定了当前任务是谁
+        ltr cx
+        ; 现在可认为“任务管理器”任务正在执行中
+
+        ; 创建用户任务的任务控制器
+        mov ebx,[core_next_laddr]
+        call sys_routine_seg_sel:alloc_inst_a_page
+        add dword [core_next_laddr],4096
+
+        ; TODO
+
+
+
+
+
+
+
+
 
 
 
