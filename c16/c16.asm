@@ -25,7 +25,7 @@
 
         
         salt_end:
-        message_0       db  0x0d,0x0a
+        message_0       db  0x0d,0x0a,
                         db  '   ............User task is running with '
                         db  'paging enable........',0x0d,0x0a,0
 
@@ -36,22 +36,28 @@
         [bits 32]
 
 start:
-        mov eax,message_0
+
+
+
+        mov ebx,message_0
         call far  [PringString]
     
         xor esi,esi
 
         mov ecx,88
 
+
     .b1:
         mov ebx,space
         call far [PringString]
 
+
+
         mov edx,[esi*4]
         call far [PrintDWordAsHex]
 
-        inc esi
-        loop .b1
+
+
 
         inc esi
         loop .b1
