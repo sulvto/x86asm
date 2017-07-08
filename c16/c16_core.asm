@@ -248,29 +248,34 @@ set_up_gdt_descriptor:
 
         mov ebx,core_data_seg_sel
         mov ds,ebx
-
+             
         sgdt [pgdt]                     ; 取出GDT
         
         mov ebx,mem_0_4_gb_seg_sel
         mov es,ebx
         
+        
+        
         movzx ebx,word [pgdt]
         inc bx
         add ebx,[pgdt+2]
-
+ 
+ 
         mov [es:ebx],eax
         mov [es:ebx+4],edx
         add word [pgdt],8
-        
+                                      
         lgdt [pgdt]
 
         mov ax,[pgdt]
-        or dx,dx
+
+        xor dx,dx
         mov bx,8
         div bx
         mov cx,ax
-        shl cx,3
 
+        shl cx,3
+        
         pop es
         pop ds
         pop edx
@@ -428,7 +433,7 @@ create_copy_cur_pdir:
         mov ds,ebx
         mov es,ebx
         
-        call alloc_inst_a_page
+        call allocate_a_4k_page
         mov ebx,eax
         or ebx,0x00000007
         mov [0xfffffff8],ebx
@@ -697,7 +702,7 @@ load_relocate_program:
 
         ; 将数据段作为用户任务的3特权级固有堆栈
         mov ebx,[es:esi+0x06]               ; 从TCB中获取可用的线性地址
-        add dword [es:esi+0x06],0x100
+        add dword [es:esi+0x06],0x1000
         call sys_routine_seg_sel:alloc_inst_a_page
 
         mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
@@ -721,7 +726,7 @@ load_relocate_program:
         mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
         mov [es:ebx+8],cx                   ; 填写TSS的SS0域
         mov edx,[es:esi+0x06]               ; 堆栈的高端线性地址
-        mov [es:ebx+4],ebx                  ; 填写TSS的ESP0域    
+        mov [es:ebx+4],edx                  ; 填写TSS的ESP0域    
 
         ; 在用户任务的局部地址空间内创建1特权级堆栈
         mov ebx,[es:esi+0x06]               ; 从TCB中获取TSS的线性地址
@@ -739,7 +744,7 @@ load_relocate_program:
         mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
         mov [es:ebx+16],cx                   ; 填写TSS的SS1域
         mov edx,[es:esi+0x06]               ; 堆栈的高端线性地址
-        mov [es:ebx+12],ebx                  ; 填写TSS的ESP1域    
+        mov [es:ebx+12],edx                  ; 填写TSS的ESP1域    
 
         ; 在用户任务的局部地址空间内创建2特权级堆栈
         mov ebx,[es:esi+0x06]               ; 从TCB中获取TSS的线性地址
@@ -757,7 +762,7 @@ load_relocate_program:
         mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
         mov [es:ebx+24],cx                   ; 填写TSS的SS2域
         mov edx,[es:esi+0x06]               ; 堆栈的高端线性地址
-        mov [es:ebx+20],ebx                  ; 填写TSS的ESP2域    
+        mov [es:ebx+20],edx                  ; 填写TSS的ESP2域    
 
 
         ; 重定位SALT
@@ -843,7 +848,7 @@ load_relocate_program:
         ; 创建用户的页目录
         ; 
         call sys_routine_seg_sel:create_copy_cur_pdir
-        mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
+         mov ebx,[es:esi+0x14]               ; 从TCB中获取TSS的线性地址
         mov dword [es:ebx+28],eax           ; 填写TSS的CR3（PDBP）域
 
         pop es
@@ -1008,7 +1013,7 @@ start:
 
     flush:
         mov eax,core_stack_seg_sel
-        mov es,eax
+        mov ss,eax
     
         mov eax,core_data_seg_sel
         mov ds,eax
@@ -1020,10 +1025,13 @@ start:
         mov edi,salt    
         mov ecx,salt_items
     .b4:
+
+
         push ecx
         mov eax,[edi+256]                   ; 32位偏移地址
         mov bx,[edi+260]                    ; 段选择子
         mov cx,1_11_0_1100_000_00000B       ; 特权级3的调用门（3以上的特权级才允许访问），0个参数（因为用寄存器传递参数，而没有用栈）
+        
         call sys_routine_seg_sel:make_gate_descriptor
         call sys_routine_seg_sel:set_up_gdt_descriptor
         mov [edi+260],cx                    ; 回填门描述符选择子
@@ -1038,18 +1046,20 @@ start:
         ; 为程序管理程序的TSS分配内存空间
         mov ebx,[core_next_laddr]
         call sys_routine_seg_sel:alloc_inst_a_page
+
         add dword [core_next_laddr],4096
 
         ; 在程序管理器的TSS中设置必要的项目
         mov word [es:ebx+0],0               ; 反向链=0
-        
+
         mov eax,cr3
         mov dword [es:ebx+28],eax           ; 登记CR3（PDBR）
         
         mov word [es:ebx+96],0              ; 没有LDT。处理器允许没有LDT的任务
         mov word [es:ebx+100],0             ; T=0
         mov word [es:ebx+102],103           ; 没有I/O位图。0特权级事实上不需要
-        
+
+
         ; 创建程序管理器的TSS描述符， 并安装到GDT中
         mov eax,ebx                         ; TSS的起始线性地址
         mov ebx,103                         ; 段长度
@@ -1069,9 +1079,10 @@ start:
 
         mov dword [es:ebx+0x06],0           ; 用户任务局部空间分配从0开始
         mov word [es:ebx+0x0a],0xffff       ; 登记LDT初始的界限到TCB中
+
         mov ecx,ebx
         call append_to_tcb_link             ; 将TCB添加到TCB链中
-    
+   
         push dword 50                       ; 用户程序
         push ecx
     
