@@ -36,7 +36,7 @@ put_string:
         call put_char
         inc ebx
         jmp .getc
-    .exit
+    .exit:
         pop ecx
         retf                        ; 段间返回
     
@@ -254,12 +254,12 @@ set_up_gdt_descriptor:
         mov ebx,mem_0_4_gb_seg_sel
         mov es,ebx
         
-        movax ebx,word [pgdt]
+        movzx ebx,word [pgdt]
         inc bx
         add ebx,[pgdt+2]
 
         mov [es:ebx],eax
-        mov [es:ebc+4],edx
+        mov [es:ebx+4],edx
         add word [pgdt],8
         
         lgdt [pgdt]
@@ -274,6 +274,7 @@ set_up_gdt_descriptor:
         pop es
         pop ds
         pop edx
+        pop ebx
         pop eax
 
         retf
@@ -340,7 +341,7 @@ allocate_a_4k_page:
         jnc .b2
         inc eax
         cmp eax,page_map_len*8
-        ji .b1
+        jl .b1
     
         ; 没有可以分配的页，停机
         mov ebx,message_3
@@ -524,7 +525,7 @@ SECTION core_data vstart=0
 
         core_buf  times 512 db 0                ; 内核用的缓冲区
 
-        cpu_brnd0
+        cpu_brnd0       db 0x0d,0x0a,'  ',0
         cpu_brand   times 52 db 0       
         cpu_brnd1       db  0x0d,0x0a,0x0d,0x0a,0
 
@@ -808,7 +809,7 @@ load_relocate_program:
         ; 在GDT中登记LDT描述符
         mov esi,[ebp+11*4]                  ; 从堆栈中取的TCB的基地址
         mov eax,[es:esi+0x0c]               ; LDT的起始线性地址
-        movzx ebx,word [ed:esi+0x0a]        ; LDT段界限
+        movzx ebx,word [es:esi+0x0a]        ; LDT段界限
         mov ecx,0x00408200                  ; LDT描述符
         call sys_routine_seg_sel:make_seg_descriptor
         call sys_routine_seg_sel:set_up_gdt_descriptor
@@ -867,7 +868,7 @@ append_to_tcb_link:
         mov eax,mem_0_4_gb_seg_sel
         mov es,eax
 
-        mov dword [ed+ecx+0x00],0
+        mov dword [es:ecx+0x00],0
         
         mov eax,[tcb_chain]
         or eax,eax
