@@ -144,8 +144,57 @@ SECTION mbr vstart=0x00007c00
 ; @Param DS：EBX=目标缓冲区地址
 ; @Return EBX=EBX+512
 read_hare_disk_0:
-    ; TODO
-    ret
+        push eax
+        push ecx
+        push edx
+        
+        push eax
+        
+        mov dx,0x1f2
+        mov al,1
+        out dx,al                               ; 读取的扇区数
+        
+        inc dx                                  ; 0x1f3
+        pop eax
+        out dx,al
+        
+        inc dx                                  ; 0x1f4
+        mov cl,8
+        shr eax,cl
+        out dx,al
+
+        inc dx                                  ; 0x1f5
+        shr eax,cl
+        out dx,al
+
+        inc dx                                  ; 0x1f6
+        shr eax,cl
+        or al,0xe0
+        out dx,al
+
+        inc dx                                  ; 0x1f7
+        mov al,0x20
+        out dx,al
+        
+    .waits:
+        in al,dx
+        and al,0x88                             ; 10001000
+        cmo al,0x80                             ; 10000000
+        jnz .waits
+        
+        mov ecx,256
+        mov dx,0x1f0
+    .readw:
+        in ax,dx
+        mov [ebx],ax
+        add ebx,2
+        loop .readw
+        
+        pop edx
+        pop ecx
+        pop eax
+
+        ret
 
 ;---------------------------------------------------------------------
         pgdt        dw  0
