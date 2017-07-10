@@ -104,7 +104,39 @@ append_to_tcb_link:
         ; TODO
 ;---------------------------------------------------------------------
 start:
+        ; 创建中断描述表IDT
+        ; 前20个向量是处理器异常使用                    
+        mov eax,general_exception_handler           ; 门代码在段内偏移地址
+        mov bx,flat_4gb_code_seg_sel                ; 门代码所在段的选择子
+        mov cx,0x8e00                               ; 32位中断门，0特权级 
+        call flat_4gb_code_seg_sel:make_gate_descriptor        
+
+        mov ebx,idt_linear_address                  ; 中断描述表的线性地址
+        xor esi,esi
+    .idt0:
+        mov [ebx+esi*8],eax
+        mov [ebx+esi*8+4],edx
+        inc esi
+        cmp esi,19                                  ; 安装前20个异常中断处理过程
+        jle .idt0
+
+        ; 其余为保留或硬件使用的中断向量
+        mov eax,general_interrupt_handler           ; 门代码在段内偏移地址
+        mov bx,flat_4gb_code_seg_sel                ; 门代码所在段的选择子
+        mov cx,0x8e00                               ; 32位中断门，0特权级 
+        call flat_4gb_code_seg_sel:make_gate_descriptor
+        
+        mov ebx,idt_linear_address                  ; 中断描述表的线性地址
+    .idt1:
+        mov [ebx+esi*8],eax
+        mov [ebx+esi*8+4],edx
+        inc esi 
+        cmp esi,255                                 ; 安装普通的中断处理过程
+        jle .idt1
+
+        ; 设置实时时钟中断处理过程
         ; TODO
+    
 core_code_end:
 
 ;---------------------------------------------------------------------
