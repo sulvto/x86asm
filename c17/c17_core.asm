@@ -66,16 +66,83 @@ create_copy_cur_pdir:
         ; TODO
 
 ;---------------------------------------------------------------------
+; 通用的中断处理过程
 general_interrupt_handler:
-        ; TODO
-
+        push eax                                                 
+        
+        mov al,0x20                     ; 中断结束命令EOI
+        out 0xa0,al                     ; 向从片发送
+        out 0x20,al;                    ; 向主片发送
+                                                          
+        pop eax
+        
+        iretd                             
 ;---------------------------------------------------------------------
+; 通用的异常处理过程
 general_exception_handler:
-        ; TODO
-
+        mov ebx,excep_msg
+        call flat_4gb_code_seg_sel:put_string
+    
+        hlt   
+        
 ;---------------------------------------------------------------------
+; 实时时钟中断处理过程
 rtm_0x70_interrupt_handle:
-        ; TODO
+        pushad
+        
+        mov al,0x20                     ; 中断结束命令EOI
+        out 0xa0,al                     ; 向8259A从片发送
+        out 0x20,al                     ; 向8259A主片发送
+
+        mov al,0x0c                     ; 寄存器C的索引
+        out 0x70,al     
+        in al,0x71                      ; 读下一个RTC的寄存器C，
+                                        ; 否则只发生一次中断
+                                        ; 不考虑闹钟和周期性中断的情况
+
+        ; 找到当前任务(状态为忙的任务)在链表中的位置
+        mov eax,tcb_chain
+    .b0:
+        mov ebx,[eax]
+        or ebx,ebx
+        jz .irtn
+        cmp word [ebx+0x04],0xffff
+        je .b1
+        mov eax,ebx
+        jmp .b0
+        
+        ; 将当前为忙的任务移到链尾
+    .b1:
+        mov ecx,[ebx]
+        mov [eax],ecx                   ; 将当前任务从链中拆除
+    .b2:                                ; EBX=当前任务的线性地址
+        mov edx,[eax]
+        or edx,edx                      ; 链尾？
+        jz .b3
+        mov eax,edx
+        jmp .b2
+
+    .b3:
+        mov [eax],ebx                   ; 当前任务挂到链尾
+        mov dword [ebx],0x00000000
+        
+        ; 从链首搜索第一个空闲任务
+        mov eax,tcb_chain
+    .b4:
+        mov eax,[eax]
+        or eax,eax                  
+        jz .irtn                        ; 未发现空闲任务，从中断返回
+        cmp dword [eax+0x04],0x0000     ; 空闲任务？
+        jnz .b4
+        
+        ; 将空闲任务和当前任务的状态都取反
+        not word [eax,0x04]             ; 设置空闲任务的状态为忙
+        not word [ebx+0x04]             ; 设置当前任务（忙）的状态为闲
+        jmp far [eax+0x14]              ; 任务切换
+    .irtn:
+        popad
+    
+        iretd
 
 ;---------------------------------------------------------------------
 terminate_current_task:
@@ -135,10 +202,39 @@ start:
         jle .idt1
 
         ; 设置实时时钟中断处理过程
-        ; TODO
-    
-core_code_end:
+        mov eax,rtm_0x70_interrupt_handle           ; 门代码在段内偏移地址
+        mov bx,flat_4gb_code_seg_sel                ; 门代码所在段的选择子
+        mov cx,0x8e00                               ; 32位中断门，0特权级
+        call flat_4gb_code_seg_sel:make_gate_descriptor
 
+        mov ebx,idt_linear_address                  ; 中断描述表的线性地址
+        mov [ebx+0x70*8],eax
+        mov [ebx+0x70*8+4],edx
+
+        ; 准备开放中断
+        mov word [pidt],256*8-1                     ; IDT的界限
+        mov dword [pidt+2],idt_linear_address
+        lidt    [pidt]                              ; 加载中断描述符表寄存器IDTR
+
+        ; 设置8259A中断控制器
+        mov al,0x11
+        out 0x20,al                                 ; ICW1:边缘
+        mov al,0x20
+        out 0x21,al
+        mov al,0x04
+        out 0x21,al
+        mov al,0x01
+        out 0x21,al
+
+        mov al,0x11
+        out 0xa0,al
+        mov al,0x70
+        out 0xa1,al
+        mov al,0x04
+        out 0xa1,al 
+        mov al,0x01
+        out 0xa1,al
+        ; TODO
 ;---------------------------------------------------------------------
 SECTION core_trail
 ;---------------------------------------------------------------------
