@@ -218,23 +218,49 @@ start:
 
         ; 设置8259A中断控制器
         mov al,0x11
-        out 0x20,al                                 ; ICW1:边缘
+        out 0x20,al                                 ; ICW1:边沿触发/级联方式
         mov al,0x20
-        out 0x21,al
-        mov al,0x04
-        out 0x21,al
+        out 0x21,al                                 ; ICW2:起始中断向量
+        mov al,0x04     
+        out 0x21,al                                 ; ICW3:从片级联到IR2
         mov al,0x01
-        out 0x21,al
+        out 0x21,al                                 ; ICW4:非总线缓冲,全嵌套，正常EOI
 
         mov al,0x11
-        out 0xa0,al
-        mov al,0x70
-        out 0xa1,al
-        mov al,0x04
-        out 0xa1,al 
-        mov al,0x01
-        out 0xa1,al
+        out 0xa0,al                                 ; ICW1:边沿触发/级联方式
+        mov al,0x70                                                                   
+        out 0xa1,al                                 ; ICW2:起始中断向量
+        mov al,0x04                                                                   
+        out 0xa1,al                                 ; ICW3:从片级联到IR2
+        mov al,0x01                                                                   
+        out 0xa1,al                                 ; ICW4:非总线缓冲,全嵌套，正常EOI
+        
+        ; 设置和时钟中断相关的硬件
+        mov al,0x0b                                 ; RTC寄存器B
+        ; 0x80 10000000
+        or al,0x80                                  ; 阻断NMI
+        out 0x70,al
+        mov al,0x12                                 ; 设置寄存器B，禁止周期性中断，开放
+        out 0x70,al                                 ; 更新结束后中断，BCD码，24小时制
+
+        in al,0x21                                  ; 读8259从片的IMR寄存器
+        ; 11111110
+        and al,0xfe                                 ; 清除bit 0（此位连接RTC）
+        out 0xa1,al                                 ; 写回此寄存器
+
+        mov al,0x0c
+        out 0x70,al
+        in al,0x71                                  ; 读RTC寄存器C，复位未决的中断状态
+        
+        sti                                         ; 开放硬件中断
+
+        mov ebx,message_0
+        call flat_4gb_code_seg_sel:put_string
+
+        ;显示处理器品牌信息
         ; TODO
+
+
 ;---------------------------------------------------------------------
 SECTION core_trail
 ;---------------------------------------------------------------------
