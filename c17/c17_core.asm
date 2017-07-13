@@ -343,11 +343,113 @@ terminate_current_task:
 fill_descriptor_in_ldt:
         ; TODO
 ;---------------------------------------------------------------------
-;
-;
+; 加载并重定位用户程序
+; @Param PUSH 逻辑扇区号
+;        PUSH 任务控制块基地址
 ;
 load_relocate_program:
-        ; TODO
+        pushad
+    
+        mov ebp,esp                     ; 为访问通过堆栈传递的参数做准备
+        
+        ; 清空当前目录的前半部分(对应低2GB的局部地址空间)
+        mov ebx,0xfffff000
+        xor esi,esi
+    .b1:
+        mov dword [ebx+esi*4],0x00000000
+        inc esi
+        cmp esi,512
+        jl .b1
+    
+        mov eax,cr3
+        mov cr3,eax                     ;刷新TLB
+        
+        ; 分配内存并加载用户程序
+        mov eax [ebp+40]                ; 起始扇区号
+        mov ebx,core_buf
+        call flat_4gb_code_seg_sel:read_hard_disk_0
+
+        ; 判断整个程序有多大
+        mov eax,[core_buf]
+        mov ebx,eax
+        and ebx,0xfffff000
+        add ebx,0x1000  
+        test eax,0x00000fff
+        cmovnz eax,ebx
+        
+        mov ecx,eax
+        shr ecx,12
+
+        mov eax,[ebp+40]                ; 起始扇区号
+        mov esi,[ebp+36]                ; TCB的基地址
+
+    .b2:
+        alloc_user_linear
+        
+        push ecx
+        mov ecx,8
+    .b3:
+        call flat_4gb_code_seg_sel:read_hard_disk_0
+        inc eax
+        loop .b3
+
+        pop ecx     
+        loop .b2
+
+        alloc_core_linear
+        
+        mov [esi+0x14],ebx
+        mov word [esi+0x12],103
+        
+        alloc_user_linear
+
+        mov [esi+0x0c],ebx
+
+        ; 建立程序代码段描述符
+        mov eax,0x00000000
+        mov ebx,0x000fffff
+        mov ecx,0x00c0f800  
+        call flat_4gb_code_seg_sel:make_seg_descriptor
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+        or cx,0000_0000_0000_0011B
+        
+        mov ebx,[esi+0x14]              ; TCB中获取TSS的线性地址
+        mov [ebx+76],cx                 ; 填写TSS的CS域
+
+       
+        ; 建立程序数据段描述符
+        mov eax,0x00000000
+        mov ebx,0x000fffff
+        mov ecx,0x00c0f200  
+        call flat_4gb_code_seg_sel:make_seg_descriptor
+        mov ebx,esi
+        call fill_descriptor_in_ldt
+        or cx,0000_0000_0000_0011B
+                
+        mov ebx,[esi+0x14]              ; TCB中获取TSS的线性地址
+        mov [ebx+84],cx                 ; 填写TSS的DS域
+        mov [ebx+72],cx                 ; 填写TSS的ES域
+        mov [ebx+88],cx                 ; 填写TSS的FS域
+        mov [ebx+92],cx                 ; 填写TSS的GS域
+ 
+        ; 将数据段作为用户程序的3特权级固有堆栈
+        alloc_user_linear
+
+        mov ebx,[esi+0x14]              ; TCB中获取TSS的线性地址
+        mov [ebx+80],cx                 ; 填写TSS的SS域
+        mov edx,[esi+0x06]              ; 堆栈的高端线性地址
+        mov [ebx+56],edx                ; 填写TSS的ESP域
+        
+        ;在用户程序的局部地址空间内创建0特权级堆栈
+        alloc_user_linear
+        
+
+        
+
+    
+
+
 ;---------------------------------------------------------------------
 ; 在TCB链上追加任务控制块
 ; @Param ECX=TCB线性基地址
