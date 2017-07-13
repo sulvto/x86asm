@@ -6,9 +6,19 @@
         
 ;---------------------------------------------------------------------
 
-
-
-
+        ; 定义宏
+        %macro alloc_core_linear 0
+            mov ebx [core_tcb+0x06]
+            add dword [core_tcb+0x06],0x1000
+            call flat_4gb_code_seg_sel:alloc_inst_a_page
+        %endmacro
+;---------------------------------------------------------------------
+        %macro alloc_user_linear 0                             
+            mov ebx [esi+0x06]
+            add dword [esi+0x06],0x1000
+            call flat_4gb_code_seg_sel:alloc_inst_a_page
+        %endmacro
+;=====================================================================
 SECTION core    vstart=0x80040000
     
         ; 系统核心头部，用于加载核心程序
@@ -24,12 +34,106 @@ SECTION core    vstart=0x80040000
 ; @Param EBX=字符串的线性地址
 ; 
 put_string:
-        ; TODO
+        
+        push ebx
+        push ecx
+        
+        cli                                     ; 硬件操作期间，关中断
+    .getc:
+        mov cl,[ebx]
+        or cl,cl
+        jz .exit
+        call put_char
+        inc ebx
+        jmp .getc
+
+    .exit:
+        sti                                     ; 硬件操作完毕，开放中断
+        pop ecx
+        pop ebx
+
+        retf
+
 ;---------------------------------------------------------------------
 ; 在当前光标处显示一个字符，并推进光标。仅用于段内调用
 ; @Param CL=字符ASCII码
 put_char:
-        ; TODO
+        pushad
+        
+        ; 以下取当前光标位置
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        in al,dx
+        mov ah,al
+            
+        dec dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        in al,dx
+        mov bx,ax
+        and ebx,0x0000ffff
+
+        cmp cl,0x0d
+        jnz .put_0a
+        
+        mov ax,bx   
+        mov bl,80
+        div bl
+        mul bl
+        mov bx,ax
+        jmp .set_cursor
+        
+    .put_0a:
+        cmp cl ,0x0a
+        jnz .put_other
+        add bx,80
+        jmp .roll_screen
+        
+    .put_other:
+        shl bx,1
+        mov [0x800b8000+ebx],cl
+        
+        shr bx,1
+        inc bx
+
+    .roll_screen:
+        cmp bx,2000
+        jl .set_cursor
+        
+        cld
+        mov esi,0x800b80a0
+        mov edi,0x800b8000
+        mov ecx,1920
+        rep movsd
+        mov bx,3840
+        mov ecx,80
+    .cls:
+        mov word [0x800b8000+ebx],0x0720
+        add bx,2
+        loop .cls
+
+        mov bx,1920
+    .set_cursor:
+        mov dx,0x3d4
+        mov al,0x0e
+        out dx,al
+        inc dx
+        mov al,bh
+        out dx,al
+        dec,dx
+        mov al,0x0f
+        out dx,al
+        inc dx
+        mov al,bl
+        out dx,al
+
+        popad
+        
+        ret
+
 
 ;---------------------------------------------------------------------
 ;
@@ -38,11 +142,86 @@ put_char:
 ; @Param EBX=目标缓冲区线性地址
 ; @Return EBX=EBX+512
 read_hard_disk_0:
-        ; TODO
+        cli
+
+        push eax
+        push ecx
+        push edx
+    
+        push eax
+
+        mov dx,0x1f2
+        mov al,1
+        out dx,al
+        
+        inc dx
+        pop eax
+        out dx,al   
+    
+        inc dx
+        mov cl,8
+        shr eax,cl
+        out dx,al
+
+        inc dx
+        shr eax,cl
+        out dx,al
+
+        inc dx
+        shr eax,cl
+        or al,0xe0
+        out dx,al
+
+        inc dx
+        mov al,0x20
+        out  dx,al
+
+    .waits:
+        in al,dx
+        and al,0x88
+        cmp al,0x08
+        jnz .waits
+
+        mov ecx,256
+        mov dx,0x1f0
+    .readw:
+        in ax,dx
+        mov [ebx],ax
+        add ebx,2
+        loop .readw
+
+        pop edx
+        pop ecx
+        pop eax
+
+        sti
+
+        retf
 
 ;---------------------------------------------------------------------
+; 
+;
+;
 put_hax_dword:
-        ; TODO
+        pushad
+        mov ebx,bin_hex
+        mov ecx,8
+    .xlt:
+        rol edx,4
+        mov eax,edx
+        and eax,0x0000000f
+        xlat
+        
+        push ecx
+        mov cl,al
+        call put_char
+        pop ecx
+
+        loop .xlt
+
+        popad
+
+        retf    
 
 ;---------------------------------------------------------------------
 set_up_gdt_descriptor:
@@ -164,11 +343,36 @@ terminate_current_task:
 fill_descriptor_in_ldt:
         ; TODO
 ;---------------------------------------------------------------------
+;
+;
+;
 load_relocate_program:
         ; TODO
 ;---------------------------------------------------------------------
+; 在TCB链上追加任务控制块
+; @Param ECX=TCB线性基地址
 append_to_tcb_link:
-        ; TODO
+        cli
+        push eax
+        push ebx
+        mov eax,tcb_chain
+    .b0:
+        mov ebx,[eax]
+        or ebx,ebx
+        jz .b1
+        mov eax,ebx
+        jmp .b0
+    .b1:
+        mov [eax],ecx
+        mov dword [ecx],0x00000000      ; 当前TCB指针域清零，以指示这是最后一个TCB
+        pop ebx
+        pop eax
+
+        sti
+        
+        ret
+
+        
 ;---------------------------------------------------------------------
 start:
         ; 创建中断描述表IDT
@@ -258,8 +462,120 @@ start:
         call flat_4gb_code_seg_sel:put_string
 
         ;显示处理器品牌信息
-        ; TODO
+        mov eax,0x80000002
+        cpuid
+        mov [cpu_brand+0x00],eax
+        mov [cpu_brand+0x04],ebx
+        mov [cpu_brand+0x08],ecx
+        mov [cpu_brand+0x0c],edx
 
+        mov eax,0x80000003             
+        cpuid
+        mov [cpu_brand+0x10],eax
+        mov [cpu_brand+0x14],ebx
+        mov [cpu_brand+0x18],ecx
+        mov [cpu_brand+0x1c],edx
+
+        mov eax,0x80000004
+        cpuid
+        mov [cpu_brand+0x20],eax
+        mov [cpu_brand+0x24],ebx
+        mov [cpu_brand+0x28],ecx
+        mov [cpu_brand+0x2c],edx
+
+        
+        mov ebx,cpu_brnd0
+        call flat_4gb_code_seg_sel:put_string
+        mov ebx,cpu_brand
+        call flat_4gb_code_seg_sel:put_string
+        mov ebx,cpu_brnd1
+        call flat_4gb_code_seg_sel:put_string
+
+        ; 安装为整个系统服务的调用门。特权级之间的控制转移必须使用门
+        mov edi,salt
+        mov ecx,salt_items
+    .b4:
+        push ecx
+        mov eax,[edi+256]
+        mov bx,[edi+260]
+        mov cx,1_11_0_1100_000_00000B
+        
+        call flat_4gb_code_seg_sel：make_gate_descriptor
+        call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+        mov [edi+260],cx
+        add edi,salt_item_len
+        pop ecx
+        loop .b4
+
+        ; 对门进行测试
+        mov ebx,message_1
+        call far [salt_1+256]
+
+        ; 初始化创建任务管理器任务的任务控制块TCB
+        mov word [core_tcb+0x04],0xffff                 ; 任务状态：忙碌
+        mov dword [core_tcb+0x06],0x80100000            ; 
+        
+        mov word [core_tcb+0x0a],0xffff                 ; 登记LDT初始的界限到TCB中（未使用）
+        mov ecx,core_tcb
+        call append_to_tcb_link
+
+        ; 为程序管理器的TSS分配内存空间
+        alloc_core_linear
+
+        ; 在程序管理器的TSS中设置必要的项目
+        mov word [ebx+0],0                              ; 反向链=0
+        mov eax,cr3
+        mov dword [ebx+28],eax                          ; 登记CR3（PDBR）
+        mov word [ebx+96],0                             ; 没有LDT。处理器允许没有LDT的任务
+        mov word [ebx+100],0                            ; T=0
+        mov word [ebx+102],103                          ; 没有I/O。0特权级事实上不需要
+
+        ; 创建程序管理器的TSS描述符，并安装到GDT中
+        mov eax,ebx
+        mov ebx,103
+        mov ecx,0x00408900
+        call flat_4gb_code_seg_sel:make_seg_descriptor
+        call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+        mov [core_tcb+0x18],cx
+        
+        
+        ltr cx
+        
+        alloc_core_linear
+        
+        mov word [ebx+0x04],0
+        mov dwoord [ebx+0x06],0
+        mov word [ebx+0x0a],0xffff
+    
+        push dword 50
+        push ebx
+        call load_relocate_program
+        mov ecx,ebx
+        call append_to_tcb_link
+
+        alloc_core_linear
+
+        mov word [ebx+0x04],0
+        mov dwoord [ebx+0x06],0
+        mov word [ebx+0x0a],0xffff
+                                   
+        push dword 100
+        push ebx
+        call load_relocate_program
+        mov ecx,ebx
+        call append_to_tcb_link
+
+    .core:
+        mov ebx,core_msg0
+        call flat_4gb_code_seg_sel:put_string
+        
+        jmp .core
+
+
+
+
+    
+core_code_end:
 
 ;---------------------------------------------------------------------
 SECTION core_trail
