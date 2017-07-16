@@ -65,7 +65,7 @@ SECTION mbr vstart=0x00007c00
         mov edi,core_base_address
         mov eax,core_start_sector   
         mov ebx,edi
-        call read_hard_disk_0                   ; 读程序的起始部分（1个扇区）
+        call read_hare_disk_0                   ; 读程序的起始部分（1个扇区）
         
         ; 判断整个程序大小
         mov eax,[edi]
@@ -86,7 +86,7 @@ SECTION mbr vstart=0x00007c00
         inc eax
 
     @2:
-        call read_hard_disk_0
+        call read_hare_disk_0
         inc eax
         loop @2
 
@@ -145,7 +145,7 @@ SECTION mbr vstart=0x00007c00
 ; @Param EAX=逻辑扇区
 ; @Param DS：EBX=目标缓冲区地址
 ; @Return EBX=EBX+512
-read_hard_disk_0:
+read_hare_disk_0:
         push eax
         push ecx
         push edx
@@ -181,7 +181,7 @@ read_hard_disk_0:
     .waits:
         in al,dx
         and al,0x88                             ; 10001000
-        cmp al,0x08                             ; 10000000
+        cmp al,0x80                             ; 10000000
         jnz .waits
         
         mov ecx,256

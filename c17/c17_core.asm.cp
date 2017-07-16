@@ -483,7 +483,7 @@ rtm_0x70_interrupt_handle:
         mov eax,[eax]
         or eax,eax                  
         jz .irtn                        ; 未发现空闲任务，从中断返回
-        cmp word [eax+0x04],0x0000     ; 空闲任务？
+        cmp dword [eax+0x04],0x0000     ; 空闲任务？
         jnz .b4
         
         ; 将空闲任务和当前任务的状态都取反
@@ -879,6 +879,8 @@ append_to_tcb_link:
 ;---------------------------------------------------------------------
 start:
 
+mov ebx,message_0
+call flat_4gb_code_seg_sel:put_string
         ; 创建中断描述表IDT
         ; 前20个向量是处理器异常使用                    
         mov eax,general_exception_handler           ; 门代码在段内偏移地址
@@ -949,9 +951,9 @@ start:
         or al,0x80                                  ; 阻断NMI
         out 0x70,al
         mov al,0x12                                 ; 设置寄存器B，禁止周期性中断，开放
-        out 0x71,al                                 ; 更新结束后中断，BCD码，24小时制
+        out 0x70,al                                 ; 更新结束后中断，BCD码，24小时制
 
-        in al,0xa1                                  ; 读8259从片的IMR寄存器
+        in al,0x21                                  ; 读8259从片的IMR寄存器
         ; 11111110
         and al,0xfe                                 ; 清除bit 0（此位连接RTC）
         out 0xa1,al                                 ; 写回此寄存器
